@@ -58,5 +58,11 @@ export async function loadScreenshot(url: string, { width = 800 } = {}): Promise
   const tex = new THREE.CanvasTexture(c)
   tex.colorSpace = THREE.SRGBColorSpace
   tex.anisotropy = 4
+  // once on the GPU the canvas is dead weight (~2.6 MB each): shrink it. A lost
+  // context reloads the page, so nothing ever needs to re-upload it.
+  tex.onUpdate = () => {
+    c.width = c.height = 1
+    tex.onUpdate = null
+  }
   return tex
 }

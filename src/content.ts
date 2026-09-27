@@ -31,6 +31,7 @@ export const CONCEPTS = [
   { name: 'Primetime', slug: 'hark-primetime' },
   { name: 'Noir', slug: 'hark-noir' },
   { name: 'Neon', slug: 'hark-neon' },
+  { name: 'Opal', slug: 'hark-opal' },
 ].map(c => ({ ...c, url: `https://harkdigital.github.io/${c.slug}/` }))
 
 /** The other concepts (everything except this one). */
@@ -368,6 +369,8 @@ export const SECTIONS = {
   work: { eyebrow: 'Selected work', title: 'Built to be heard.' },
   services: { eyebrow: 'What we do', title: 'Eleven ways to be heard.' },
   voices: { eyebrow: 'Client voices', title: 'We listen. They talk.' },
+  /** site-v2 pages/Service.tsx: the process block's header */
+  process: { eyebrow: 'How it works', title: 'We listen first. Then we build.' },
 }
 
 /** How every engagement runs (Software Development process, servicePages.ts). */
@@ -384,11 +387,14 @@ export const PROCESS = [
  */
 /** THEME: give every concept its own microcopy (don't reuse another concept's). */
 export const MICROCOPY = {
-  signalEyebrow: 'Hark Digital Design',
-  scrollHint: 'Scroll to begin',
+  signalEyebrow: 'Hark Digital Design · Philadelphia',
+  scrollHint: 'Scroll, slowly',
   audio: 'Sound',
   audioOn: 'On',
   audioOff: 'Off',
+  motion: 'Motion',
+  motionOn: 'On',
+  motionOff: 'Off',
 }
 
 export const SECURITY = {

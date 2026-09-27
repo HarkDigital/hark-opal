@@ -16,6 +16,9 @@ const esc = (s: string) =>
 
 const isPreview = (url: string) => /harktest\.com/.test(url)
 
+/** the Break-In's stat panel (shown on stage, so it's in the linear copy too) */
+const STAT_247 = STATS.find(s => s.value === '24/7') ?? STATS[3]
+
 const ext = (href: string, label: string, anchor?: number) =>
   `<a href="${esc(href)}" target="_blank" rel="noopener"${anchor != null ? ` data-anchor="${anchor}"` : ''}>${esc(label)}<span class="sr-note"> (opens in a new tab)</span></a>`
 
@@ -29,17 +32,28 @@ const COPY: Record<string, () => string> = {
     <p>${esc(BRAND.manifesto)}</p>
     <p><a href="#work" data-land="work" data-anchor="0">See the work</a> · <a href="#contact" data-land="contact" data-anchor="0">Start a project</a></p>`,
 
-  work: () => `
+  work: () => {
+    // featured first, then the rest — the same order as the stage (anchors 0..14)
+    const featured = WORK.filter(w => w.featured)
+    const rest = WORK.filter(w => !w.featured)
+    const item = (w: (typeof WORK)[number], i: number, n: number) =>
+      `<li><h3>${esc(w.name)}</h3><p>${String(i + 1).padStart(2, '0')} / ${String(n).padStart(2, '0')} · ${esc(w.industry)}. ${esc(w.blurb)}</p><p>${w.tags.map(esc).join(' · ')}</p><p>${ext(
+        w.url,
+        isPreview(w.url) ? `Preview ${w.name} (pre-launch build)` : `Visit ${w.name}`,
+        i,
+      )}</p></li>`
+    return `
     <h2 tabindex="0">${esc(SECTIONS.work.title)}</h2>
     <p>${esc(SECTIONS.work.eyebrow)} — ${WORK.length} sites.</p>
-    <ul>${WORK.map(
-      (w, i) =>
-        `<li><h3>${esc(w.name)}</h3><p>${esc(w.industry)}. ${esc(w.blurb)}</p><p>${ext(
-          w.url,
-          isPreview(w.url) ? `Preview ${w.name} (pre-launch build)` : `Visit ${w.name}`,
-          i,
-        )}</p></li>`,
-    ).join('')}</ul>`,
+    <ul>${featured.map((w, i) => item(w, i, featured.length)).join('')}</ul>
+    <h3>Nine more, all live.</h3>
+    <ul>${rest
+      .map(
+        (w, j) =>
+          `<li>${esc(w.name)} · ${esc(w.industry)} · ${ext(w.url, isPreview(w.url) ? `Preview ${w.name} (pre-launch build)` : `Visit ${w.name}`, featured.length + j)}</li>`,
+      )
+      .join('')}</ul>`
+  },
 
   services: () => `
     <h2 tabindex="0">${esc(SECTIONS.services.title)}</h2>
@@ -52,6 +66,7 @@ const COPY: Record<string, () => string> = {
     <h2 tabindex="0">${esc(SECURITY.title)}</h2>
     <p>${esc(SECURITY.eyebrow)}.</p>
     <p>${esc(SECURITY.body)}</p>
+    <p>${esc(STAT_247.value)}: ${esc(STAT_247.label)}</p>
     <p><a href="${esc(SECURITY.href)}" data-anchor="0">${esc(SECURITY.cta.replace(/\s*→\s*$/, ''))}</a></p>`,
 
   voices: () => `
@@ -63,8 +78,8 @@ const COPY: Record<string, () => string> = {
     ).join('')}`,
 
   process: () => `
-    <p>How we work</p>
-    <h2 tabindex="0">We listen first. Then we build.</h2>
+    <p>${esc(SECTIONS.process.eyebrow)}</p>
+    <h2 tabindex="0">${esc(SECTIONS.process.title)}</h2>
     <ol>${PROCESS.map((p, i) => `<li><h3>${stop('process', i, p.title)}</h3><p>${esc(p.text)}</p></li>`).join('')}</ol>
     <ul>${[STATS[0], STATS[2], STATS[1]].map((s, i) => `<li>${i === 0 ? `${stop('process', 4, s.value)}: ${esc(s.label)}` : `${esc(s.value)}: ${esc(s.label)}`}</li>`).join('')}</ul>`,
 

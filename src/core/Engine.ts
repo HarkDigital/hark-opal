@@ -32,6 +32,8 @@ export interface EngineState {
 const CUT_WINDOW = 0.18
 /** Render-pixel budget: 4K/5K windows would otherwise push 15+ MP through bloom. */
 const PIXEL_BUDGET = 6e6
+/** device pixels of three's glass (transmission) buffer on desktop; it only ever shrinks with the frame (Frost's lesson) */
+const GLASS_BUDGET = 1.9e6
 
 function emptyChapter(id: string): Chapter {
   return {
@@ -102,6 +104,8 @@ export class Engine {
   paused = false
   private cutHold = 0
   private cutCss = -1
+  private rapidUntil = 0
+  private cutOutState = 0
   private cutPeakAt = -1e9
   /**
    * Ambient motion on/off. When off, frame.time holds still once the intro
@@ -115,6 +119,24 @@ export class Engine {
   private suppressFocusLand = false
   private tmpRight = new THREE.Vector3()
   private tmpUp = new THREE.Vector3()
+  /**
+   * Still-frame idling: with Motion off the picture is frozen, so once the
+   * scroll, pointer and cuts have settled (~1.5 s) the engine only redraws at
+   * a 2 fps heartbeat; any input wakes it.
+   */
+  private wakeAt = 0
+  private beatAt = 0
+  private idleScroll = -1
+  private idlePx = 0
+  private idlePy = 0
+  /** the pose actually shown: time-damped toward the chapter's pose (snaps on cuts/jumps) */
+  private shown = { position: new THREE.Vector3(), target: new THREE.Vector3(), fov: 45, init: false, index: -1 }
+  /** ?cam=px,py,pz,tx,ty,tz[,fov] — a fixed debug camera for scouting shots */
+  private debugCam: number[] | null = (() => {
+    const v = new URLSearchParams(location.search).get('cam')
+    const n = v ? v.split(',').map(Number) : null
+    return n && n.length >= 6 && n.every(Number.isFinite) ? n : null
+  })()
 
   constructor(
     private canvas: HTMLCanvasElement,
@@ -138,16 +160,21 @@ export class Engine {
     //   cinematic ones, NoToneMapping suits stylised post passes (palette
     //   snaps, ink densities). Shadows cost real GPU time — enable only if
     //   the look needs them (then keep the shadow frustum tight).
-    this.renderer.setClearColor(0x0d0f12, 1)
+    // Opal: PBR Neutral keeps each light's hue true through the glass while
+    // hot cores roll off to white. Shadows OFF: the light is diffused
+    // (frosted glass, opal diffusers), and soft light casts no hard shadows.
+    this.renderer.setClearColor(0x000000, 1)
     this.renderer.outputColorSpace = THREE.SRGBColorSpace
     this.renderer.toneMapping = THREE.NeutralToneMapping
     this.renderer.shadowMap.enabled = false
+    // three's glass (transmission) buffer: half-res on phones; desktop sizing below
+    this.renderer.transmissionResolutionScale = this.mobile ? 0.5 : 1
     this.renderer.shadowMap.type = THREE.PCFShadowMap
     this.renderer.toneMappingExposure = 1
     this.renderer.info.autoReset = false
     this.renderer.debug.checkShaderErrors = !import.meta.env.PROD
 
-    this.world = new World(this.scene, this.mobile)
+    this.world = new World(this.scene, this.mobile, this.renderer)
     this.scene.add(this.world.object)
     this.assets = new Assets(this.renderer)
     // MSAA only where it pays: 1x desktop screens. Retina is already supersampled,
@@ -177,7 +204,11 @@ export class Engine {
     })
 
     this.resize(true)
-    window.addEventListener('resize', () => this.resize())
+    window.addEventListener('resize', () => {
+      this.wake()
+      this.resize()
+    })
+    for (const ev of ['keydown', 'wheel', 'touchstart', 'pointerdown'] as const) window.addEventListener(ev, () => this.wake(), { passive: true })
     const toNdc = (e: PointerEvent) =>
       this.frame.pointerRaw.set((e.clientX / this.cw) * 2 - 1, -(e.clientY / this.ch) * 2 + 1)
     window.addEventListener('pointermove', toNdc)
@@ -239,7 +270,14 @@ export class Engine {
   static supported() {
     try {
       const c = document.createElement('canvas')
-      return !!c.getContext('webgl2')
+      const gl = c.getContext('webgl2')
+      if (!gl) return false
+      // the post chain renders into half-float targets: without a float colour
+      // buffer the page would be black, so take the static copy instead
+      const ok = !!(gl.getExtension('EXT_color_buffer_float') || gl.getExtension('EXT_color_buffer_half_float'))
+      // give the probe context back (browsers cap live contexts)
+      gl.getExtension('WEBGL_lose_context')?.loseContext()
+      return ok
     } catch {
       return false
     }
@@ -369,7 +407,7 @@ export class Engine {
   private async prewarm() {
     // lit programs key on the environment map: give the scene its real one first
     ;(this.world as unknown as { warmEnv?: () => void }).warmEnv?.()
-    const target = this.post.composer.renderTarget1
+    const target = this.post.sceneTarget
     // Compile each chapter with ONLY its own group (and lights) visible:
     // three keys programs on the visible light set, so compiling everything at
     // once builds variants no chapter ever uses and the real ones link later,
@@ -393,6 +431,10 @@ export class Engine {
           console.error(`[hark] chapter "${slot.def.id}" failed during compile`, err)
         }
       }
+      // program setup is synchronous inside compileAsync: yield per chapter so
+      // boot never becomes one long task (the compiles still run in parallel)
+      await nextFrame()
+      this.renderer.setRenderTarget(target)
     }
     for (const slot of this.slots) slot.chapter.group.visible = false
     compiles.push(this.post.compileAsync())
@@ -546,6 +588,7 @@ export class Engine {
       this.timer.update(ms)
       this.lenis.raf(ms)
       if (this.paused) return
+      if (this.idle(ms)) return
       try {
         this.tick()
       } catch (err) {
@@ -554,6 +597,32 @@ export class Engine {
       }
     }
     requestAnimationFrame(loop)
+  }
+
+  /** true when this frame can be skipped: Motion off, nothing moving, not a heartbeat */
+  private idle(now: number) {
+    const frozen = !this.motion && this.revealAt >= 0 && performance.now() - this.revealAt > 3000
+    const s = this.lenis.scroll
+    const p = this.frame.pointerRaw
+    const busy = !!this.slots[this.state.index]?.chapter.busy?.()
+    if (!frozen || busy || this.jump || s !== this.idleScroll || p.x !== this.idlePx || p.y !== this.idlePy || this.cutCss > 0) {
+      this.idleScroll = s
+      this.idlePx = p.x
+      this.idlePy = p.y
+      this.wakeAt = now
+      return false
+    }
+    if (now - this.wakeAt < 1500) return false
+    if (now - this.beatAt >= 500) {
+      this.beatAt = now
+      return false
+    }
+    return true
+  }
+
+  /** wake the idle heartbeat (keys, touches, resizes) */
+  wake() {
+    this.wakeAt = performance.now()
   }
 
   /**
@@ -690,6 +759,10 @@ export class Engine {
     const slot = this.slots[index]
     if (!slot) return
     const local = clamp((scrollVh - slot.start) / slot.def.length)
+    // one site-wide glass buffer from a device-pixel budget (~0.6 of a DPR-2
+    // frame); never resized per chapter, and only shrinks with adaptive DPR
+    const ts = this.mobile ? 0.5 : clamp(Math.sqrt(GLASS_BUDGET / Math.max(1, this.cw * this.ch * this.dpr * this.dpr)), 0.35, 1)
+    if (this.renderer.transmissionResolutionScale !== ts) this.renderer.transmissionResolutionScale = ts
 
     // glitch ramps up approaching any internal cut and back down after it
     let d = Infinity
@@ -702,8 +775,14 @@ export class Engine {
     const now = performance.now()
     if (cut > 0.9) this.cutPeakAt = now
     this.cutHold = Math.max(this.cutHold * Math.exp(-f.dt / 0.45), cut)
-    const rapid = now - this.cutPeakAt < 500 || Math.abs(f.velocity) > 3
-    const cutOut = rapid ? Math.max(cut, this.cutHold) : cut
+    // "rapid" latches for 400 ms (a reduced-motion wheel moves the scroll in
+    // single-frame steps, so velocity flickers across the threshold), and the
+    // cut never drops to zero in one frame: it can only fall at a 0.2 s rate
+    if (now - this.cutPeakAt < 500 || Math.abs(f.velocity) > 3) this.rapidUntil = now + 400
+    const rapid = now < this.rapidUntil
+    const cutTarget = rapid ? Math.max(cut, this.cutHold) : cut
+    this.cutOutState = this.jump ? cutTarget : Math.max(cutTarget, this.cutOutState * Math.exp(-f.dt / 0.2))
+    const cutOut = this.cutOutState
     // the chapter's DOM copy fades while the cut covers the frame; CSS reads --cut
     const cutCss = Math.round(cutOut * 50) / 50
     if (cutCss !== this.cutCss) {
@@ -711,10 +790,15 @@ export class Engine {
       this.stages.style.setProperty('--cut', String(cutCss))
     }
     const calm = this.reducedMotion || !this.motion
+    this.post.calm = calm
+    // the speed dim follows the scroll (post.ts)
+    this.post.velocity = this.jump ? 0 : f.velocity
+    // which side of the nearest boundary we're on (+1 leaving a chapter, -1 entering one)
+    this.post.cutSide = local > 0.5 ? 1 : -1
     if (calm) {
-      // no ripples or flashes: a quiet, shallow dip instead
+      // no colour field: a calm fade through near-black
       this.post.transition = 0
-      this.post.fade = cutOut * 0.35
+      this.post.fade = cutOut * 0.9
     } else {
       this.post.transition = cutOut
       this.post.fade = 0
@@ -763,6 +847,36 @@ export class Engine {
     } catch (err) {
       if (!slot.failed) console.error(`[hark] chapter "${slot.def.id}" crashed in update`, err)
       slot.failed = true
+    }
+    // film-smooth camera: damp the pose ~0.1 s so a fast scroll can't swing a
+    // hard key light or a lit window across the frame several times a second;
+    // snap on a new chapter, a nav jump, or a big teleport (screenshots / goto)
+    {
+      const sh = this.shown
+      const far = sh.init && sh.position.distanceTo(this.pose.position) > 40
+      if (!sh.init || sh.index !== index || this.jump || far || this.reducedMotion) {
+        sh.position.copy(this.pose.position)
+        sh.target.copy(this.pose.target)
+        sh.fov = this.pose.fov
+        sh.init = true
+        sh.index = index
+      } else {
+        const k = 1 - Math.exp(-10 * f.dt)
+        sh.position.lerp(this.pose.position, k)
+        sh.target.lerp(this.pose.target, k)
+        sh.fov += (this.pose.fov - sh.fov) * k
+      }
+      this.pose.position.copy(sh.position)
+      this.pose.target.copy(sh.target)
+      this.pose.fov = sh.fov
+    }
+    if (this.debugCam) {
+      const c = this.debugCam
+      this.pose.position.set(c[0], c[1], c[2])
+      this.pose.target.set(c[3], c[4], c[5])
+      if (c[6]) this.pose.fov = c[6]
+      this.pose.parallax = 0
+      this.pose.roll = 0
     }
     if (this.reducedMotion || !this.motion) {
       this.post.params.flash = Math.min(this.post.params.flash, 0.08)

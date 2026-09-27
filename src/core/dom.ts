@@ -122,7 +122,8 @@ export function rise<T extends HTMLElement>(node: T, html: string): T {
   tmp.innerHTML = html
   let i = 0
   const out: string[] = []
-  const walk = (n: Node, wrapEm: boolean) => {
+  // em: null = plain text, '' = <em>, 'x' = <em class="x"> (the class carries through)
+  const walk = (n: Node, em: string | null) => {
     if (n.nodeType === Node.TEXT_NODE) {
       const parts = (n.textContent ?? '').split(/(\s+)/)
       for (const p of parts) {
@@ -130,13 +131,14 @@ export function rise<T extends HTMLElement>(node: T, html: string): T {
         if (/^\s+$/.test(p)) out.push(' ')
         else {
           const w = p.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]!)
-          out.push(`<span class="rise-w" style="--i:${i++}"><span>${wrapEm ? `<em>${w}</em>` : w}</span></span>`)
+          const open = em === null ? '' : em ? `<em class="${em.replace(/[^\w\s-]/g, '')}">` : '<em>'
+          out.push(`<span class="rise-w" style="--i:${i++}"><span>${em === null ? w : `${open}${w}</em>`}</span></span>`)
         }
       }
     } else if (n.nodeName === 'BR') out.push('<br>')
-    else n.childNodes.forEach(c => walk(c, wrapEm || n.nodeName === 'EM'))
+    else n.childNodes.forEach(c => walk(c, n.nodeName === 'EM' ? (n as Element).getAttribute('class') ?? '' : em))
   }
-  tmp.childNodes.forEach(c => walk(c, false))
+  tmp.childNodes.forEach(c => walk(c, null))
   node.innerHTML = out.join('')
   node.setAttribute('aria-label', tmp.textContent ?? '')
   return node
