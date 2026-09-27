@@ -149,7 +149,14 @@ export function lightTube(length = 2, o: { color?: string; radius?: number; hdr?
  * clear (the canvas starts white = frosted). toPx(x, y) maps world units on
  * the pane to canvas pixels. res = pixels along the longer side.
  */
-export function etchMap(w: number, h: number, draw: (g: CanvasRenderingContext2D, W: number, H: number, toPx: (x: number, y: number) => [number, number], scale: number) => void, res = 1024) {
+export function etchMap(
+  w: number,
+  h: number,
+  draw: (g: CanvasRenderingContext2D, W: number, H: number, toPx: (x: number, y: number) => [number, number], scale: number) => void,
+  res = 1024,
+  /** free the canvas once it's on the GPU (don't use if you redraw it later, e.g. on fonts.ready) */
+  release = false,
+) {
   const W = w >= h ? res : Math.max(16, Math.round((res * w) / h))
   const H = w >= h ? Math.max(16, Math.round((res * h) / w)) : res
   const c = document.createElement('canvas')
@@ -170,7 +177,23 @@ export function etchMap(w: number, h: number, draw: (g: CanvasRenderingContext2D
   tex.repeat.set(1 / w, 1 / h)
   tex.offset.set(0.5, 0.5)
   tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping
+  if (release) releaseAfterUpload(tex)
   return tex
+}
+
+/**
+ * Shrink a canvas texture's canvas once it has been uploaded (the etch maps
+ * held ~29 MB of canvas after upload). A lost context reloads the page, so
+ * nothing ever needs to re-upload it. Call AFTER any fonts.ready redraw.
+ */
+export function releaseAfterUpload(tex: THREE.Texture) {
+  const c = tex.image as HTMLCanvasElement | undefined
+  if (!c || !('width' in c)) return
+  tex.onUpdate = () => {
+    c.width = c.height = 1
+    tex.onUpdate = null
+  }
+  tex.needsUpdate = true
 }
 
 /** Paint the Hark mark (filled, black = polished) into an etch canvas: centre (cx, cy), height in world units. */

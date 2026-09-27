@@ -30,6 +30,8 @@ export interface EngineState {
 
 /** Scroll distance (in vh) on each side of a cut where the glitch ramps. */
 const CUT_WINDOW = 0.18
+/** seconds a time-driven jump cut takes to cover the frame (then it swaps and clears in 0.5 s) */
+const JUMP_IN = 0.26
 /** Render-pixel budget: 4K/5K windows would otherwise push 15+ MP through bloom. */
 const PIXEL_BUDGET = 6e6
 /** device pixels of three's glass (transmission) buffer on desktop; it only ever shrinks with the frame (Frost's lesson) */
@@ -264,6 +266,16 @@ export class Engine {
     }
     window.addEventListener('wheel', dropCopyFocus, { passive: true })
     window.addEventListener('touchmove', dropCopyFocus, { passive: true })
+    // …and keyboard page scrolling (PageDown/Space/arrows): the pill would keep
+    // naming an item that's no longer on screen (Enter would open it)
+    const SCROLL_KEYS = new Set(['PageDown', 'PageUp', 'Home', 'End', 'ArrowDown', 'ArrowUp', ' '])
+    window.addEventListener('keydown', e => {
+      if (!SCROLL_KEYS.has(e.key) || e.defaultPrevented) return
+      const a = document.activeElement as HTMLElement | null
+      // Space activates a focused button: leave buttons alone
+      if (e.key === ' ' && a?.tagName === 'BUTTON') return
+      dropCopyFocus()
+    })
   }
 
   /** Is WebGL2 available at all? */
@@ -441,7 +453,11 @@ export class Engine {
     await Promise.all(compiles)
     await nextFrame()
 
-    // the composer's own passes
+    // the composer's own passes — with a cut on screen, so the colour-field
+    // pass and the final pass's field branch link now, not on the first cut
+    this.post.transition = 0.5
+    this.post.render(0.016, 0)
+    this.post.transition = 0
     this.post.render(0.016, 0)
     await nextFrame()
 
@@ -543,9 +559,33 @@ export class Engine {
     if (target < 0) return
     const local = at ?? this.landingFor(id)
     if (!smooth) return this.gotoChapter(id, local)
-    if (Math.abs(target - this.state.index) <= 1) return this.gotoChapter(id, local, true)
+    // a jump already in flight (a burst of pip/nav clicks): retarget it, so the
+    // burst reads as ONE dissolve out and one in (never a train of cuts)
+    if (this.jump) {
+      if (!this.jump.swapped) {
+        this.jump.id = id
+        this.jump.local = local
+      } else {
+        // already fading in: climb back from the current cover, then swap again
+        const cover = this.jumpCover
+        this.jump = { t: JUMP_IN * Math.sqrt(Math.max(0, Math.min(1, cover))), id, local, swapped: false }
+      }
+      return
+    }
+    // Smooth scroll only for a short step: forward up to 1.5 vh (the next
+    // chapter's landing), back up to 0.6 vh (Shift+Tab through items). Anything
+    // else cuts: a long smooth scroll pans the camera past lit items (a flash),
+    // and backwards, time-paced chapters (StoryClock) would replay every item
+    // in reverse before the target shows.
+    const slot = this.slots[target]
+    const d = slot.start + clamp(local) * slot.def.length - this.lenis.scroll / this.vh
+    if (Math.abs(d) < 0.01) return
+    if (d >= -0.6 && d <= 1.5) return this.gotoChapter(id, local, true)
     this.jump = { t: 0, id, local, swapped: false }
   }
+
+  /** current cover (0..1) of a time-driven jump cut */
+  private jumpCover = 0
 
   /**
    * Move keyboard focus to a chapter's heading in the copy layer (after an
@@ -577,9 +617,12 @@ export class Engine {
     this.lenis.scrollTo(y, smooth ? { duration: 1.8, force: true } : { immediate: true, force: true })
   }
 
+  private startedAt = 0
+
   start() {
     if (this.running) return
     this.running = true
+    this.startedAt = performance.now()
     let reported = false
     const loop = (ms: number) => {
       if (!this.running) return
@@ -632,7 +675,9 @@ export class Engine {
    * up once there's headroom.
    */
   private adaptResolution(raw: number, dt: number) {
-    if (document.hidden || this.frame.time < 4 || this.jump) return
+    // wall clock, not frame.time: with Motion off frame.time freezes (~3 s) and
+    // adaptive resolution would never engage for reduced-motion visitors
+    if (document.hidden || performance.now() - this.startedAt < 4000 || this.jump) return
     this.cadence.push(raw)
     if (this.cadence.length > 120) this.cadence.shift()
     if (this.cadence.length >= 60 && ++this.cadenceTick % 20 === 0) {
@@ -705,9 +750,15 @@ export class Engine {
 
   /** 0..1 strength of a time-driven cut in progress (long nav jumps). */
   private jumpFx(dt: number) {
+    const v = this.jumpStep(dt)
+    this.jumpCover = v
+    return v
+  }
+
+  private jumpStep(dt: number) {
     const j = this.jump
     if (!j) return 0
-    const IN = 0.26
+    const IN = JUMP_IN
     const OUT = 0.5
     j.t += dt
     if (j.t < IN) {

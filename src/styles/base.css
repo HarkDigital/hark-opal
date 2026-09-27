@@ -272,11 +272,17 @@ a {
   letter-spacing: -0.01em;
   padding-right: 0.06em;
   color: #ffc2d6;
-  background: var(--accent-grad);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  filter: drop-shadow(0 0 18px rgba(255, 140, 185, 0.28));
+}
+/* the accent lit by the gradient — only where text clipping is supported (the
+   fallback above is a solid blush); no filter on clipped text (Safari drops it) */
+@supports (-webkit-background-clip: text) or (background-clip: text) {
+  .hud-title em,
+  .hud-h2 em {
+    background: var(--accent-grad);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
 }
 .is-light .hud-title em,
 .is-light .hud-h2 em {
@@ -523,9 +529,8 @@ a {
   text-align: center;
   line-height: 1.35;
   font-family: var(--font-mono);
-  font-size: 12px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-size: 12.5px;
+  letter-spacing: 0.02em;
   text-decoration: none;
   color: var(--ink);
   background: #fbf5f8;
@@ -537,9 +542,6 @@ a {
     0 6px 20px rgba(0, 0, 0, 0.4);
   outline: none;
 }
-.sr-copy :is(a, button):focus .sr-note {
-  display: none;
-}
 .sr-copy :is(h1, h2):focus {
   position: fixed;
   left: 50%;
@@ -548,9 +550,8 @@ a {
   z-index: 40;
   margin: 0;
   white-space: nowrap;
-  font: 500 12px/1 var(--font-mono);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font: 500 12.5px/1 var(--font-mono);
+  letter-spacing: 0.02em;
   color: var(--ink);
   background: var(--paper-2);
   padding: 12px 18px;
@@ -631,11 +632,40 @@ html.motion-off .rise .rise-w > span {
     --safe-bottom: calc(52px + env(safe-area-inset-bottom, 0px));
   }
 }
-/* portrait phones: the chapters' copy owns the top and bottom bands — the focus pill goes mid-screen */
+/* portrait phones: the chapters' copy owns the top and bottom bands — the focus
+   pill goes mid-screen, except where the middle holds copy (work's board, the
+   process stats): there it takes the top band */
 @media (max-width: 760px) and (orientation: portrait) {
   .sr-copy :is(a, button):focus,
   .sr-copy :is(h1, h2):focus {
     top: 50%;
     transform: translate(-50%, -50%);
+  }
+  html[data-chapter='work'] .sr-copy :is(a, button):focus,
+  html[data-chapter='process'] .sr-copy :is(a, button):focus {
+    top: calc(var(--safe-top) + 8px);
+    transform: translateX(-50%);
+  }
+}
+/* portrait tablets: heading pills drop into the bottom band, clear of the eyebrow + headline */
+@media (min-width: 761px) and (max-width: 1100px) and (orientation: portrait) {
+  .sr-copy :is(h1, h2):focus {
+    top: auto;
+    bottom: calc(var(--safe-bottom) + 8px);
+  }
+}
+/* short landscape / 200% zoom: where the copy fills the frame, the pill takes the bottom chrome band while focused */
+@media (orientation: landscape) and (max-height: 500px) {
+  html[data-chapter='work'] .sr-copy :is(a, button, h1, h2):focus,
+  html[data-chapter='process'] .sr-copy :is(a, button, h1, h2):focus,
+  html[data-chapter='shield'] .sr-copy :is(a, button, h1, h2):focus {
+    top: auto;
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 8px);
+  }
+}
+/* narrow phones: the stacked Sound/Motion switches + readout need ~79 px, plus air */
+@media (max-width: 560px) and (orientation: portrait) {
+  :root {
+    --safe-bottom: calc(96px + env(safe-area-inset-bottom, 0px));
   }
 }

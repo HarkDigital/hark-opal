@@ -81,12 +81,23 @@ const FinalShader = {
         + texture2D(tField, uv + vec2(o.x, -o.y)).rgb
         + texture2D(tField, uv + vec2(-o.x, -o.y)).rgb) / 6.0;
     }
-    // the field's mean colour: 9 taps across the frame
-    vec3 fieldMean() {
-      vec3 m = vec3(0.0);
-      for (int y = 0; y < 3; y++)
-        for (int x = 0; x < 3; x++) m += texture2D(tField, vec2(0.2 + 0.3 * float(x), 0.2 + 0.3 * float(y))).rgb;
-      return m / 9.0;
+    const vec3 LUM = vec3(0.2126, 0.7152, 0.0722);
+    // the field's mean colour (m) and the colour of its LIGHT (brightness-
+    // weighted: the lit glass, not the black room around it) — 16 taps
+    void fieldStats(out vec3 m, out vec3 hue) {
+      m = vec3(0.0);
+      vec3 hw = vec3(0.0);
+      float ws = 1e-4;
+      for (int y = 0; y < 4; y++)
+        for (int x = 0; x < 4; x++) {
+          vec3 c = texture2D(tField, vec2(0.125 + 0.25 * float(x), 0.125 + 0.25 * float(y))).rgb;
+          float l = dot(c, LUM);
+          m += c;
+          hw += c * l * l;
+          ws += l * l;
+        }
+      m /= 16.0;
+      hue = hw / ws;
     }
 
     void main() {
@@ -103,16 +114,31 @@ const FinalShader = {
       float t = clamp(uTransition, 0.0, 1.0);
       float soft = max(t, clamp(uGlitch, 0.0, 1.0) * 0.6);
       if (soft > 0.001) {
+        // the field is a blur that keeps the frame's brightness and loses its
+        // edges — with the chroma lifted, so light spreads as colour, not murk
         vec3 f = field(uv);
-        // the field is a blur: it keeps the frame's brightness, loses its edges
+        float fl = dot(f, LUM);
+        f = max(mix(vec3(fl), f, 1.55), 0.0);
         float k = smoothstep(0.0, 0.75, soft);
         col = mix(col, f, k);
-        // at the boundary the field itself evens out into one luminous colour
-        vec3 mean = fieldMean();
+        // at the boundary it evens out into ONE luminous colour: the hue of
+        // the room's light at a modest, steady brightness (a Ganzfeld)
+        vec3 mean, hue;
+        fieldStats(mean, hue);
+        float ml = dot(mean, LUM);
+        float hl = max(dot(hue, LUM), 1e-3);
+        float target = clamp(ml * 1.5 + 0.045, 0.06, 0.25);
+        // saturate the light's hue hard (frames are mostly dark glass: their
+        // light averages toward grey) and hold it at the target brightness
+        vec3 h = max(mix(vec3(hl), hue, 2.2), vec3(0.0));
+        vec3 glow = min(h * (target / max(dot(h, LUM), 1e-3)), vec3(1.0));
+        // a dusk gradient across the field: warmer below, cooler above
+        glow *= mix(vec3(1.12, 0.96, 0.9), vec3(0.9, 0.98, 1.12), smoothstep(0.0, 1.0, uv.y));
+        glow = max(glow, uCutColor);
         float u = smoothstep(0.55, 1.0, t);
         // a gentle radial falloff keeps it a room, not a flat card
-        float room = 1.0 - 0.35 * smoothstep(0.1, 0.9, length(c * vec2(1.2, 1.0)));
-        col = mix(col, max(mean, uCutColor) * room * 1.05, u);
+        float room = 1.0 - 0.3 * smoothstep(0.1, 0.9, length(c * vec2(1.2, 1.0)));
+        col = mix(col, glow * room, u);
       }
 
       col *= 1.0 - clamp(uSpeedDim, 0.0, 0.8);
@@ -369,7 +395,12 @@ export class Post {
    * render doesn't block on synchronous links.
    */
   compileAsync(): Promise<unknown> {
-    const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2))
+    // the same attribute set as FullScreenQuad (position + uv, no normal): a
+    // PlaneGeometry compiles a different program variant that's never used
+    const geo = new THREE.BufferGeometry()
+    geo.setAttribute('position', new THREE.Float32BufferAttribute([-1, 3, 0, -1, -1, 0, 3, -1, 0], 3))
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute([0, 2, 0, 0, 2, 0], 2))
+    const quad = new THREE.Mesh(geo)
     const cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1)
     const b = this.bloom as unknown as Record<string, unknown>
     const mats: THREE.Material[] = []

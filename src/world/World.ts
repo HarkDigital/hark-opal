@@ -60,7 +60,7 @@ export const WORLD_DEFAULTS = {
   fieldB: '#8f7bff',
   fieldAngle: 0,
   fieldSize: 1,
-  slits: 0.3,
+  slits: 0.2,
   slitColor: '#f4f1ff',
   slitAngle: 0,
   env: 1,
