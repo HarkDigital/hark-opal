@@ -1,0 +1,227 @@
+/* HERO · Threshold — chapter-scoped copy layout (.hero-*)
+
+   landing (.hero-intro): eyebrow + the h1 + manifesto + scroll hint.
+     landscape: one column on the left, vertically centred between the chrome
+     bands; the slab stands right of it.
+     portrait: a title plate in the top band (eyebrow + h1) and a plate in the
+     bottom band (manifesto + hint); the slab stands between them.
+   payoff (.hero-payoff): the locale line + the two CTAs (the lit slab is the
+     headline). Landscape: left, centred; portrait: a plate in the bottom band.
+
+   index.ts measures these boxes to frame the camera into the free space, so
+   the grids use justify-items: start (children shrink to their content). */
+
+.hero-intro {
+  position: absolute;
+  left: var(--gutter);
+  top: var(--safe-top);
+  bottom: var(--safe-bottom);
+  width: min(580px, 46vw);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.hero-intro-inner {
+  position: relative;
+  display: grid;
+  gap: 30px;
+  justify-items: start;
+}
+/* a soft smoked scrim (never a hard panel) keeps the copy clear of the field's glow */
+.hero-intro-inner::before,
+.hero-pay-inner::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  left: -120px;
+  top: -90px;
+  right: -80px;
+  bottom: -90px;
+  background: radial-gradient(closest-side, rgba(3, 2, 6, 0.7), rgba(3, 2, 6, 0.45) 60%, rgba(3, 2, 6, 0));
+  pointer-events: none;
+}
+.hero-head,
+.hero-foot {
+  display: grid;
+  justify-items: start;
+}
+.hero-head {
+  gap: 22px;
+}
+.hero-foot {
+  gap: 16px;
+}
+.hero-title {
+  font-size: clamp(3rem, 6.4vw, 7.2rem);
+}
+.hero-manifesto {
+  color: rgba(245, 242, 248, 0.84);
+}
+.hero-hint {
+  margin: 0;
+}
+.hero-eyebrow-text {
+  min-width: 0;
+}
+.hero-nowrap {
+  white-space: nowrap;
+}
+
+/* payoff: the locale line + CTAs on the left, vertically centred between the bands */
+.hero-payoff {
+  position: absolute;
+  left: var(--gutter);
+  top: var(--safe-top);
+  bottom: var(--safe-bottom);
+  width: min(460px, 40vw);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.hero-pay-inner {
+  position: relative;
+  display: grid;
+  gap: 24px;
+  justify-items: start;
+}
+.hero-ctas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+/* shorter landscape screens (small laptops): a smaller h1 so the column fits */
+@media (min-aspect-ratio: 1/1) and (max-height: 760px) {
+  .hero-title {
+    font-size: clamp(2.8rem, 10.5vh, 6rem);
+  }
+  .hero-intro-inner {
+    gap: 22px;
+  }
+  .hero-head {
+    gap: 16px;
+  }
+}
+
+/* short landscape (a phone sideways after "Continue anyway", 200% zoom on a
+   laptop): eyebrow, h1 and the hint only — the manifesto is in the copy layer */
+@media (orientation: landscape) and (max-height: 500px) {
+  .hero-intro {
+    width: min(440px, 48vw);
+  }
+  .hero-intro-inner {
+    gap: 12px;
+  }
+  .hero-head {
+    gap: 10px;
+  }
+  .hero-title {
+    font-size: clamp(1.9rem, 9.6vh, 2.9rem);
+  }
+  .hero-manifesto {
+    display: none;
+  }
+  .hero-eyebrow,
+  .hero-locale {
+    font-size: 10.5px;
+    letter-spacing: 0.1em;
+    gap: 10px;
+  }
+  .hero-payoff {
+    width: min(460px, 50vw);
+  }
+  .hero-pay-inner {
+    gap: 14px;
+  }
+  .hero-intro-inner::before,
+  .hero-pay-inner::before {
+    left: -60px;
+    top: -40px;
+    bottom: -40px;
+  }
+}
+
+/* portrait (phones, tablets upright): each block on a smoked plate — the
+   title plate in the top band, the manifesto plate and the payoff plate in
+   the bottom band; the slab stands between */
+@media (max-aspect-ratio: 1/1) {
+  .hero-intro {
+    right: var(--gutter);
+    width: auto;
+    justify-content: stretch;
+  }
+  .hero-intro-inner {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    align-items: stretch;
+    gap: 16px;
+  }
+  .hero-intro-inner::before,
+  .hero-pay-inner::before {
+    display: none;
+  }
+  .hero-head,
+  .hero-foot,
+  .hero-pay-inner {
+    max-width: 620px;
+    padding: 16px 18px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+  }
+  .hero-head {
+    gap: 12px;
+  }
+  .hero-foot {
+    gap: 10px;
+  }
+  .hero-title {
+    font-size: clamp(2.4rem, 10.6vw, 5.4rem);
+  }
+  .hero-payoff {
+    top: auto;
+    right: var(--gutter);
+    width: auto;
+    display: block;
+  }
+  .hero-pay-inner {
+    gap: 14px;
+  }
+}
+@media (max-aspect-ratio: 1/1) and (max-width: 420px) {
+  /* the eyebrow and the locale line each fit one line on a phone */
+  .hero-eyebrow,
+  .hero-locale {
+    font-size: 10.5px;
+    letter-spacing: 0.1em;
+    gap: 10px;
+  }
+  .hero-locale::before {
+    display: none;
+  }
+  .hero-manifesto {
+    font-size: 14.5px;
+    line-height: 1.5;
+  }
+}
+@media (max-aspect-ratio: 1/1) and (max-height: 700px) {
+  .hero-head,
+  .hero-foot,
+  .hero-pay-inner {
+    padding: 12px 14px;
+  }
+  .hero-head {
+    gap: 8px;
+  }
+  .hero-manifesto {
+    font-size: 13.5px;
+  }
+  .hero-title {
+    font-size: 2.3rem;
+  }
+  .hero-pay-inner {
+    gap: 12px;
+  }
+}

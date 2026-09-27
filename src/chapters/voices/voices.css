@@ -1,0 +1,237 @@
+/* ------------------------------------------------------------------
+   Afterglow (voices) — gallery wall text beside a Turrell aperture.
+   The copy column sits on the dark far wall (desktop, short landscape) or
+   in a plate in the bottom band (portrait). Intro and the eight voices are
+   stacked in one grid cell, so the column never changes size.
+   Every selector is scoped under .stage-voices.
+   ------------------------------------------------------------------ */
+
+/* the chrome bands, measured by index.ts to frame the aperture */
+.stage-voices .vo-probe {
+  position: absolute;
+  left: 0;
+  width: 1px;
+  top: var(--safe-top);
+  bottom: var(--safe-bottom);
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.stage-voices .vo-copy {
+  position: absolute;
+  left: calc(var(--gutter) + clamp(0px, 2.2vw, 36px));
+  top: var(--safe-top);
+  bottom: var(--safe-bottom);
+  width: min(520px, 36vw);
+  display: grid;
+  align-content: center;
+}
+.stage-voices .vo-copy > * {
+  grid-area: 1 / 1;
+  min-width: 0;
+}
+/* a soft dark pool behind the words (the wall is already near black; this
+   keeps 4.5:1 wherever the room's bounce light reaches) */
+.stage-voices .vo-copy::before {
+  content: '';
+  position: absolute;
+  left: -22%;
+  right: -26%;
+  top: 8%;
+  bottom: 8%;
+  background: radial-gradient(closest-side, rgba(0, 0, 0, 0.62), rgba(0, 0, 0, 0));
+  pointer-events: none;
+  z-index: -1;
+}
+
+/* ---------------- intro ---------------- */
+
+.stage-voices .vo-intro {
+  display: grid;
+  justify-items: start;
+  align-content: center;
+  gap: clamp(14px, 2.2vh, 22px);
+}
+.stage-voices .vo-eyebrow {
+  opacity: 0;
+  transform: translate3d(0, 6px, 0);
+  transition:
+    opacity 0.3s ease,
+    transform 0.3s ease;
+}
+.stage-voices .vo-intro.is-on .vo-eyebrow {
+  opacity: 1;
+  transform: none;
+  transition:
+    opacity 0.8s ease 0.1s,
+    transform 1s cubic-bezier(0.16, 1, 0.3, 1) 0.1s;
+}
+.stage-voices .vo-title {
+  font-size: clamp(2.4rem, 4.6vw, 4.6rem);
+}
+
+/* ---------------- the wall text ---------------- */
+
+.stage-voices .vo-wall {
+  display: grid;
+  align-content: center;
+  gap: clamp(16px, 2.4vh, 26px);
+  visibility: hidden;
+  transition: visibility 0s linear 0.45s;
+}
+.stage-voices .vo-wall.is-on {
+  visibility: visible;
+  transition-delay: 0s;
+}
+.stage-voices .vo-idx {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+  opacity: 0;
+  transition: opacity 0.35s ease;
+}
+.stage-voices .vo-wall.is-on .vo-idx {
+  opacity: 1;
+  transition: opacity 0.8s ease 0.15s;
+}
+.stage-voices .vo-idx::before {
+  content: '';
+  width: 28px;
+  height: 1px;
+  background: var(--accent-grad);
+  box-shadow: 0 0 8px rgba(255, 150, 190, 0.45);
+}
+.stage-voices .vo-n {
+  color: var(--fg);
+}
+
+/* the voices share one cell: the stack is as tall as the longest */
+.stage-voices .vo-stack {
+  display: grid;
+}
+.stage-voices .vo-fig {
+  grid-area: 1 / 1;
+  margin: 0;
+  align-self: start;
+  opacity: 0;
+  filter: blur(6px);
+  transform: translate3d(0, 8px, 0);
+  visibility: hidden;
+  transition:
+    opacity 0.35s ease,
+    filter 0.4s ease,
+    transform 0.5s ease,
+    visibility 0s linear 0.45s;
+}
+.stage-voices .vo-fig.is-on {
+  opacity: 1;
+  filter: blur(0);
+  transform: none;
+  visibility: visible;
+  transition:
+    opacity 0.75s ease 0.3s,
+    filter 0.85s ease 0.3s,
+    transform 1.1s cubic-bezier(0.16, 1, 0.3, 1) 0.3s,
+    visibility 0s linear 0s;
+}
+.lowfx .stage-voices .vo-fig {
+  filter: none;
+}
+
+.stage-voices .vo-q {
+  margin: 0;
+  font-size: clamp(1.3rem, 2.1vw, 2.2rem);
+  line-height: 1.24;
+  /* hang the opening mark in the margin */
+  text-indent: -0.4em;
+}
+.stage-voices .vo-fig--long .vo-q {
+  font-size: clamp(1.2rem, 1.86vw, 1.95rem);
+}
+.stage-voices .vo-who {
+  margin: clamp(14px, 2vh, 22px) 0 0;
+  color: var(--fg-muted);
+}
+
+/* ---------------- portrait: the aperture above, a plate in the bottom band ---------------- */
+
+@media (max-aspect-ratio: 1/1) {
+  .stage-voices .vo-copy {
+    left: var(--gutter);
+    right: var(--gutter);
+    top: auto;
+    width: auto;
+    max-width: 620px;
+    margin: 0 auto;
+    padding: 18px 20px 20px;
+    background: rgba(4, 3, 7, 0.86);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+  }
+  .stage-voices .vo-copy::before {
+    display: none;
+  }
+  /* the plate's hairline of light */
+  .stage-voices .vo-copy::after {
+    content: '';
+    position: absolute;
+    left: 22px;
+    right: 22px;
+    top: -1px;
+    height: 1px;
+    background: var(--accent-grad);
+    opacity: 0.7;
+    pointer-events: none;
+  }
+  .stage-voices .vo-intro {
+    align-content: center;
+    gap: 14px;
+  }
+  .stage-voices .vo-title {
+    font-size: clamp(2.3rem, 11.5vw, 4.4rem);
+    max-width: 8.5em;
+  }
+  .stage-voices .vo-wall {
+    align-content: start;
+    gap: 12px;
+  }
+  .stage-voices .vo-q {
+    font-size: clamp(1.05rem, 4.75vw, 1.55rem);
+    line-height: 1.26;
+  }
+  .stage-voices .vo-fig--long .vo-q {
+    font-size: clamp(1rem, 4.45vw, 1.42rem);
+  }
+  .stage-voices .vo-who {
+    margin-top: 12px;
+  }
+}
+
+/* ---------------- short landscape (phones sideways, 200% zoom) ---------------- */
+
+@media (orientation: landscape) and (max-height: 500px) {
+  .stage-voices .vo-copy {
+    left: var(--gutter);
+    width: min(440px, 47vw);
+  }
+  .stage-voices .vo-intro {
+    gap: 10px;
+  }
+  .stage-voices .vo-title {
+    font-size: clamp(1.8rem, 5vw, 2.6rem);
+  }
+  .stage-voices .vo-wall {
+    gap: 10px;
+  }
+  .stage-voices .vo-q,
+  .stage-voices .vo-fig--long .vo-q {
+    font-size: clamp(0.9rem, 2.2vw, 1.08rem);
+    line-height: 1.26;
+  }
+  .stage-voices .vo-who {
+    margin-top: 8px;
+  }
+}

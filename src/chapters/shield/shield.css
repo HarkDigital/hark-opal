@@ -1,0 +1,171 @@
+/* SHIELD · Night Watch — copy panel beside the glass (left on wide screens,
+   the bottom band on phones), indicator labels under the partition. */
+
+.shield-frame {
+  position: absolute;
+  inset: 0;
+  padding: var(--safe-top) var(--gutter) var(--safe-bottom);
+  display: flex;
+  align-items: center;
+  pointer-events: none;
+}
+
+/* opaque smoked panel (no backdrop blur) */
+.shield-copy {
+  width: min(470px, 38vw);
+  display: grid;
+  gap: 16px;
+  padding: 26px 28px 26px;
+  background: rgba(6, 5, 10, 0.9);
+}
+.shield-copy .hud-eyebrow {
+  line-height: 1.5;
+}
+.shield-title {
+  font-size: clamp(2.4rem, 4.3vw, 4.3rem);
+  line-height: 1;
+}
+.shield-body {
+  max-width: 44ch;
+}
+
+/* the 24/7 caption: a key and its label, under a hairline */
+.shield-stat {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: baseline;
+  column-gap: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+.shield-stat-k {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  color: #e6efff;
+  text-shadow: 0 0 14px rgba(170, 200, 255, 0.45);
+}
+.shield-stat-l {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-weight: 350;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--fg-muted);
+}
+.shield-cta {
+  justify-self: start;
+  margin-top: 2px;
+}
+
+/* indicator labels: positioned per frame under each panel (JS) */
+.shield-watch {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.shield-ind {
+  position: absolute;
+  left: 0;
+  top: 0;
+  white-space: nowrap;
+  color: var(--fg);
+  letter-spacing: 0.2em;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  will-change: transform, opacity;
+}
+
+/* portrait phones and tablets: the glass above, the copy in the bottom band */
+@media (max-aspect-ratio: 20/21) {
+  .shield-frame {
+    align-items: flex-end;
+    justify-content: center;
+  }
+  .shield-copy {
+    width: min(560px, 100%);
+  }
+}
+@media (max-width: 760px) and (orientation: portrait) {
+  .shield-frame {
+    padding-bottom: calc(var(--safe-bottom) + 10px);
+  }
+  .shield-copy {
+    gap: 10px;
+    padding: 16px 18px 18px;
+  }
+  .shield-title {
+    font-size: clamp(1.9rem, 8.6vw, 2.5rem);
+  }
+  .shield-body {
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  .shield-stat {
+    padding-top: 10px;
+  }
+  .shield-stat-l {
+    font-size: 12.5px;
+    line-height: 1.45;
+  }
+  .shield-cta {
+    padding: 11px 18px;
+  }
+  .shield-ind {
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    padding: 2px 6px;
+  }
+}
+@media (max-width: 760px) and (orientation: portrait) and (max-height: 700px) {
+  .shield-copy {
+    gap: 8px;
+    padding: 14px 16px 16px;
+  }
+  .shield-title {
+    font-size: 1.85rem;
+  }
+  .shield-body {
+    font-size: 13px;
+    line-height: 1.45;
+  }
+  .shield-stat-l {
+    font-size: 12px;
+  }
+}
+
+/* short landscape (phones sideways, 200% zoom): a compact panel on the left */
+@media (orientation: landscape) and (max-height: 500px) {
+  .shield-copy {
+    width: min(400px, 48vw);
+    gap: 7px;
+    padding: 12px 16px 14px;
+  }
+  .shield-copy .hud-eyebrow {
+    font-size: 10px;
+    letter-spacing: 0.14em;
+  }
+  .shield-title {
+    font-size: 1.75rem;
+  }
+  .shield-body {
+    font-size: 12.5px;
+    line-height: 1.45;
+  }
+  .shield-stat {
+    padding-top: 7px;
+  }
+  .shield-stat-l {
+    font-size: 11.5px;
+    line-height: 1.4;
+  }
+  .shield-cta {
+    padding: 8px 14px;
+    font-size: 11px;
+  }
+  .shield-ind {
+    font-size: 10px;
+  }
+}

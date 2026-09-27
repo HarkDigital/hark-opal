@@ -13,11 +13,11 @@ import type { ChapterDef } from '../core/types'
  * and the chrome's business names.
  */
 export const CHAPTERS: ChapterDef[] = [
-  { id: 'hero', label: 'Threshold', length: 2.6, landing: 0, intro: 0.8, load: () => import('./hero/index') },
-  { id: 'work', label: 'Light Boxes', length: 3.8, landing: 0.12, intro: 0.06, load: () => import('./work/index') },
-  { id: 'services', label: 'Spectrum', length: 3.8, landing: 0.08, intro: 0.06, load: () => import('./services/index') },
-  { id: 'voices', label: 'Afterglow', length: 3.0, landing: 0.08, intro: 0.06, load: () => import('./voices/index') },
-  { id: 'shield', label: 'Night Watch', length: 1.7, landing: 0.45, intro: 0.45, load: () => import('./shield/index') },
-  { id: 'process', label: 'The Studio', length: 2.2, landing: 0.17, intro: 0.12, load: () => import('./process/index') },
+  { id: 'hero', label: 'Threshold', length: 2.6, landing: 0, intro: 0, load: () => import('./hero/index') },
+  { id: 'work', label: 'Light Boxes', length: 4.0, landing: 0.08, intro: 0.08, load: () => import('./work/index') },
+  { id: 'services', label: 'Spectrum', length: 4.2, landing: 0.1, intro: 0.08, load: () => import('./services/index') },
+  { id: 'voices', label: 'Afterglow', length: 3.6, landing: 0.1, intro: 0.08, load: () => import('./voices/index') },
+  { id: 'shield', label: 'Night Watch', length: 1.8, landing: 0.45, intro: 0.45, load: () => import('./shield/index') },
+  { id: 'process', label: 'The Studio', length: 2.4, landing: 0.2, intro: 0.1, load: () => import('./process/index') },
   { id: 'contact', label: 'Foyer', length: 1.5, landing: 0.3, intro: 0.3, load: () => import('./contact/index') },
 ]

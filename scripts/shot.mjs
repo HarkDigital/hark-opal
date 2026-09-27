@@ -5,6 +5,7 @@
 //                         [--tag=name] [--mouse=0.3,-0.2] [--rm]
 //                         [--cam=px,py,pz,tx,ty,tz[,fov]]  (fixed debug camera)
 //                         [--eval="js"]  (run in the page after each jump, e.g. hide a mesh)
+//                         [--norot]  (dismiss the phone-landscape rotate card first)
 //
 // Each frame is "<chapter>:<local 0..1>" or "p:<global 0..1>". Images land in
 // <out>/<tag?>-<chapter>-<local>.png. Console errors from the page are printed,
@@ -69,6 +70,15 @@ try {
   await page.goto(`http://localhost:${port}/?${q}`, { waitUntil: 'load', timeout: 90000 })
   await page.waitForFunction('window.__hark && window.__hark.ready', { timeout: 90000 })
   await new Promise(r => setTimeout(r, 800))
+
+  // --norot: dismiss the phone-landscape rotate card ("Continue anyway") so the scene runs
+  if (args.norot) {
+    await page.evaluate(() => {
+      const b = document.querySelector('.rot button, .rot-go, [data-continue]')
+      if (b) b.click()
+    })
+    await new Promise(r => setTimeout(r, 300))
+  }
 
   if (args.mouse) {
     const [mx, my] = String(args.mouse).split(',').map(Number)

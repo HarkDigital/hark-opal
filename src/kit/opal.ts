@@ -41,6 +41,17 @@ import { neonFromStrokes, type NeonPart } from './neon'
  *   - envMapIntensity only counts on a material with its OWN envMap: pass
  *     ctx.world.envMap (built in the World constructor) to anything glossy
  *     that must not take the full studio reflection (floors!).
+ *   - polished lines over a PLAIN light card vanish (clear glass shows the
+ *     same colour as the frost around it): put structure behind them — a
+ *     tube bank, or the design itself drawn in light just behind the glass
+ *     (process/studio.ts etchLight() is the worked example).
+ *   - evenly spaced tube banks shimmer (wagon-wheel) under a sliding camera:
+ *     space them unevenly (opalBox does).
+ *   - a small floor's far edge reads as a horizon band: stoneFloor defaults
+ *     to 240 × 160.
+ *   - …and a material with its own envMap ignores world.params.envTurn (three
+ *     uses material.envMapRotation then): set material.envMapRotation.y to
+ *     the same angle yourself when you sweep highlights (hero does this).
  */
 
 export const DUSK = {
@@ -126,6 +137,7 @@ export function lightTube(length = 2, o: { color?: string; radius?: number; hdr?
     blockout: false,
     electrodes: false,
     smooth: false,
+    caps: false,
   })
 }
 
@@ -244,8 +256,12 @@ export function opalBox(o: OpalBoxOptions) {
     const ca = new THREE.Color(hex(o.a ?? 'rose'))
     const cb = new THREE.Color(hex(o.b ?? 'violet'))
     const span = o.w * 0.84
+    // UNEVEN, symmetric spacing: an evenly spaced bank strobes like a wagon
+    // wheel when the camera slides past at ~half its pitch per frame (process
+    // measured 3 flashes/s on phones from that alone)
+    const pos = (k: number) => 0.5 + 0.5 * Math.sign(k - 0.5) * Math.pow(Math.abs(k - 0.5) * 2, 0.82)
     for (let i = 0; i < n; i++) {
-      const k = n === 1 ? 0.5 : i / (n - 1)
+      const k = n === 1 ? 0.5 : pos(i / (n - 1))
       const col = '#' + ca.clone().lerp(cb, k).getHexString()
       const t = lightTube(o.h * 0.86, { color: col, hdr: o.tubeHdr ?? 2.4, radius: Math.min(0.022, o.w * 0.006) })
       t.group.position.set(-span / 2 + span * k, 0, -depth / 2 - gap * 0.45)
@@ -285,7 +301,7 @@ export function opalBox(o: OpalBoxOptions) {
  * Polished black stone: a dark mirror-ish floor that catches soft coloured
  * reflections of the glass without going grey under the studio env.
  */
-export function stoneFloor(w = 30, d = 20, envMap: THREE.Texture | null = null) {
+export function stoneFloor(w = 240, d = 160, envMap: THREE.Texture | null = null) {
   // pass ctx.world.envMap: envMapIntensity is IGNORED on materials that only
   // see scene.environment (then scene.environmentIntensity rules), and a
   // glossy floor at grazing angles reflects the studio strips grey

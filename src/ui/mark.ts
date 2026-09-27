@@ -37,9 +37,10 @@ function parseMark() {
 export const MARK_PATHS = parseMark()
 
 /**
- * The real wordmark, "Hark.Digital" (BRAND.short): the dot is a tiny signal
- * green LED. The period stays in the markup (clipped) so copy/paste and
- * find-in-page still read "Hark.Digital". Styled by the .wm rules in ui.css.
+ * The real wordmark, "Hark.Digital" (BRAND.short), in Hanken Grotesk: the dot
+ * is a tiny opal bead lit by the accent gradient (rose → lilac). The period
+ * stays in the markup (clipped) so copy/paste and find-in-page still read
+ * "Hark.Digital". Styled by the .wm rules in ui.css.
  */
 export const WORDMARK = `<span class="wm"><span class="wm-a">Hark</span><span class="wm-dot">.</span><span class="wm-b">Digital</span></span>`
 
@@ -47,8 +48,9 @@ export const WORDMARK = `<span class="wm"><span class="wm-a">Hark</span><span cl
 export const CONCEPT_TAG = `<span class="wm-tag"><span class="wm-tag-k">Concept</span><b aria-hidden="true">·</b><em>${SITE.name}</em></span>`
 
 /**
- * Inline SVG markup for the mark. Loops fill with currentColor; the diamond
- * gets its own class so CSS can light it in signal green.
+ * Inline SVG markup for the mark. Everything fills with currentColor: the
+ * Hark mark is never tinted (white in the chrome). The diamond keeps its own
+ * class for the loader, which etches the mark clear through frosted glass.
  */
 export function markSvg(className = '', { title }: { title?: string } = {}) {
   const a11y = title ? `role="img" aria-label="${title}"` : 'aria-hidden="true" focusable="false"'

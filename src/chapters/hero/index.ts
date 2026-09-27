@@ -1,64 +1,385 @@
 import * as THREE from 'three'
-import type { Chapter } from '../../core/types'
-import { el, rise, setRise, reveal } from '../../core/dom'
+import type { CameraPose, Chapter, Frame } from '../../core/types'
+import { el, reveal, rise, setRise } from '../../core/dom'
 import { BRAND, MICROCOPY } from '../../content'
-import { ease, segment, smoothstep } from '../../core/math'
-import { framedCamera } from '../common'
-import { Dimmer, etchMap, etchMark, lightTube, opalBox, stoneFloor } from '../../kit/opal'
-import { caustic } from '../../kit/glass'
-import '../chapter.css'
+import { clamp, ease, lerp, segment, smoothstep } from '../../core/math'
+import { nextFrame } from '../../core/yield'
+import { whenRevealed } from '../../kit/images'
+import { DUSK, Dimmer, stoneFloor } from '../../kit/opal'
+import { neonFromStrokes, type NeonPart } from '../../kit/neon'
+import { buildSlab, type Slab } from './slab'
+import { floorLight, type FloorLight } from './floor'
+import './hero.css'
 
 /*
- * HERO (look lab). The foundation's smoke test: a thick frosted slab with
- * the Hark mark polished clear through it, a dusk-gradient light card
- * behind, two thin tubes at the edges, a black stone floor. The hero agent
- * replaces the scene; keep the copy pattern (intro → payoff with CTAs).
+ * HERO · "Threshold" — the gallery's entrance: one monumental slab of
+ * frosted glass (taller than a person, thick, razor-polished bevels) standing
+ * in black stone, the Hark mark polished CLEAR through it. Through the mark
+ * the Flavin bank behind it is crisp; everywhere else the slab is a soft
+ * opal glow. Architectural, still.
+ *
+ *   0.00–0.13  landing: eyebrow, the h1 (BRAND.tagline), manifesto, scroll
+ *              hint. The slab's light dims up once after the reveal (Dimmer,
+ *              ~1.2 s) and then simply stays lit. Slab right of the copy
+ *              (portrait: between the title plate and the manifesto plate).
+ *   0.14–0.62  a slow arc around the slab: the camera swings past its right
+ *              edge (the polished bevel catches the travelling highlight, the
+ *              tubes stand bare behind the glass) and settles on a 3/4 view;
+ *              the gels shift rose → violet → ice with local (continuous).
+ *   0.62–0.935 payoff: composed 3/4 frame, the locale label + the two CTAs.
+ *   0.935–1.00 out: a push into the lit face (light in frame for the cut).
+ *
+ * Framing is computed, not hand-posed: each key pose orbits the slab at a
+ * fixed yaw/pitch and fits the slab's world box into the screen space the
+ * copy leaves free (measured from the DOM once a second and on resize).
+ * Between keys the orbit parameters (not the positions) are interpolated, so
+ * the camera travels on a true arc.
+ *
+ * The hero publishes where its mark sits on the landing frame (local 0) as
+ * CSS vars on <html> for the loader's match cut:
+ *   --hark-mark-x, --hark-mark-y  centre of the mark's SVG viewBox, CSS px
+ *   --hark-mark-size              side of that (square) viewBox, CSS px
  */
+
+const FLOOR_Y = -2.0
+/** slab geometry (world units ≈ metres: 3.9 m of glass, a person is 1.8) */
+const SLAB = { w: 2.2, h: 3.86, depth: 0.12, bevel: 0.05, gap: 0.34, markH: 1.34, markY: 0.4, plinthH: 0.16 }
+/** landing copy holds (settled) until INTRO_HOLD, gone by INTRO_OUT */
+const INTRO_HOLD = 0.13
+const INTRO_OUT = 0.17
+/** payoff copy fades in over PAY_A..PAY_B, out over PAY_C..PAY_D */
+const PAY_A = 0.6
+const PAY_B = 0.66
+const PAY_C = 0.93
+const PAY_D = 0.955
+
+/** gels: the dominant light travels rose → violet → ice (A left, B right) */
+const GELS = [
+  { a: new THREE.Color(DUSK.rose), b: new THREE.Color(DUSK.lilac) },
+  { a: new THREE.Color(DUSK.lilac), b: new THREE.Color(DUSK.violet) },
+  { a: new THREE.Color(DUSK.violet), b: new THREE.Color(DUSK.ice) },
+]
+
+type Orbit = { th: number; ph: number; d: number; nx: number; ny: number; fov: number }
+const orbit = (th = 0, ph = 0, fov = 36): Orbit => ({ th, ph, d: 9, nx: 0, ny: 0, fov })
+
+const easeSine = (t: number) => 0.5 - 0.5 * Math.cos(Math.PI * t)
+
 export default function create(): Chapter {
   const group = new THREE.Group()
+  let slab: Slab
+  let fl: FloorLight
+  /**
+   * the room's one piece: a Flavin-style corner — a vertical hairline and a
+   * hairline lying on the floor from its foot, meeting in an implied corner.
+   * Off at the landing (the entrance is the slab alone); it dims up as the
+   * camera starts round, placed per layout so the payoff frame shows it in
+   * the gap between the CTAs and the slab.
+   */
+  const corner = { group: new THREE.Group(), post: null as NeonPart | null, run: null as NeonPart | null, x: -5.2, show: true, color: new THREE.Color(DUSK.ice), runColor: new THREE.Color(DUSK.warm) }
+  const CORNER = { z: -5.4, top: 4.2, run: 3.2 }
+  const cornerDim = new Dimmer(1.1, 0.6)
+  const dim = new Dimmer(1.2, 0.5)
+  let revealed = false
+  let portrait: boolean | null = null
+
+  let stage: HTMLElement
   let intro: HTMLElement
+  let head: HTMLElement
+  let foot: HTMLElement
   let payoff: HTMLElement
+  let payInner: HTMLElement
   let title: HTMLElement
-  let box: ReturnType<typeof opalBox>
-  const tubes: { part: ReturnType<typeof lightTube>; d: Dimmer }[] = []
-  const dim = new Dimmer(0.9, 0.4)
+
+  // the slab's pivot (world) and its framing box
+  const pivot = new THREE.Vector3()
+  const corners: THREE.Vector3[] = []
+  const markAt = new THREE.Vector3()
+
+  /** the free screen space the copy leaves (CSS px), measured from the DOM */
+  const lay = { w: 0, h: 0, at: -1, safeT: 96, safeB: 804, landR: 560, payR: 420, headB: 260, footT: 600, payT: 560 }
+  const K = { land: orbit(), land2: orbit(), mid: orbit(), pay: orbit(), pay2: orbit(), out: orbit() }
+  let posesKey = ''
+  let markKey = ''
+
+  const probe = new THREE.PerspectiveCamera(36, 1, 0.1, 200)
+  const pv = new THREE.Vector3()
+  const dir = new THREE.Vector3()
+  const fwd = new THREE.Vector3()
+  const right = new THREE.Vector3()
+  const camUp = new THREE.Vector3()
+  const UP = new THREE.Vector3(0, 1, 0)
+  const cur = orbit()
+  const gA = new THREE.Color()
+  const gB = new THREE.Color()
+
+  /** camera position / target for an orbit (target shifted so the pivot lands at NDC (nx, ny)) */
+  function place(o: Orbit, aspect: number, outP: THREE.Vector3, outT: THREE.Vector3) {
+    const cp = Math.cos(o.ph)
+    dir.set(Math.sin(o.th) * cp, Math.sin(o.ph), Math.cos(o.th) * cp)
+    fwd.copy(dir).negate()
+    right.crossVectors(fwd, UP).normalize()
+    camUp.crossVectors(right, fwd)
+    const tv = Math.tan((o.fov * Math.PI) / 360)
+    const sx = -o.nx * o.d * tv * aspect
+    const sy = -o.ny * o.d * tv
+    outT.copy(pivot).addScaledVector(right, sx).addScaledVector(camUp, sy)
+    outP.copy(outT).addScaledVector(dir, o.d)
+  }
+
+  function aimProbe(o: Orbit, aspect: number) {
+    probe.fov = o.fov
+    probe.aspect = aspect
+    probe.updateProjectionMatrix()
+    place(o, aspect, probe.position, pv)
+    probe.lookAt(pv)
+    probe.updateMatrixWorld()
+  }
+
+  /** fit the slab's box into NDC [X0, X1] × [Y0, Y1] (y up) at this orbit's yaw / pitch / fov */
+  function fit(o: Orbit, aspect: number, X0: number, X1: number, Y0: number, Y1: number) {
+    o.nx = (X0 + X1) / 2
+    o.ny = (Y0 + Y1) / 2
+    o.d = 9
+    for (let i = 0; i < 6; i++) {
+      aimProbe(o, aspect)
+      let x0 = Infinity
+      let x1 = -Infinity
+      let y0 = Infinity
+      let y1 = -Infinity
+      for (const c of corners) {
+        pv.copy(c).project(probe)
+        x0 = Math.min(x0, pv.x)
+        x1 = Math.max(x1, pv.x)
+        y0 = Math.min(y0, pv.y)
+        y1 = Math.max(y1, pv.y)
+      }
+      const s = Math.max((x1 - x0) / Math.max(0.05, X1 - X0), (y1 - y0) / Math.max(0.05, Y1 - Y0))
+      o.d *= s
+      // after the dolly the box shrinks about the pivot's screen point by 1/s
+      const cx = o.nx + ((x0 + x1) / 2 - o.nx) / s
+      const cy = o.ny + ((y0 + y1) / 2 - o.ny) / s
+      o.nx += (X0 + X1) / 2 - cx
+      o.ny += (Y0 + Y1) / 2 - cy
+    }
+    return o
+  }
+
+  const toNdc = (u0: number, u1: number, v0: number, v1: number) => [u0 * 2 - 1, u1 * 2 - 1, 1 - v1 * 2, 1 - v0 * 2] as const
+
+  function poses(frame: Frame) {
+    const w = Math.max(1, frame.width)
+    const h = Math.max(1, frame.height)
+    const key = `${w}x${h}:${lay.safeT}:${lay.safeB}:${lay.landR}:${lay.payR}:${lay.headB}:${lay.footT}:${lay.payT}:${portrait}`
+    if (key === posesKey) return K
+    posesKey = key
+    const a = w / h
+    const vT = lay.safeT / h
+    const vB = lay.safeB / h
+    const set = (o: Orbit, th: number, ph: number, fov: number) => {
+      o.th = th
+      o.ph = ph
+      o.fov = fov
+      return o
+    }
+    if (!portrait) {
+      // landing: nearly frontal (the loader's flat mark lands on it), right of the copy
+      const u0 = clamp(lay.landR / w + 0.07, 0.5, 0.66)
+      fit(set(K.land, -0.14, 0, 34), a, ...toNdc(u0, 0.955, vT + 0.015, vB - 0.1))
+      // the arc: past the right edge, close — the slab fills the height
+      fit(set(K.mid, 0.92, -0.04, 36), a, ...toNdc(0.26, 0.8, 0.05, 0.97))
+      // payoff: a 3/4 view right of the CTAs
+      const p0 = clamp(lay.payR / w + 0.08, 0.5, 0.64)
+      fit(set(K.pay, 0.42, 0, 34), a, ...toNdc(p0, 0.955, vT + 0.015, vB - 0.1))
+    } else {
+      fit(set(K.land, -0.1, 0, 44), a, ...toNdc(0.1, 0.9, lay.headB / h + 0.02, lay.footT / h - 0.05))
+      fit(set(K.mid, 0.8, -0.04, 46), a, ...toNdc(-0.04, 1.04, 0.06, 0.96))
+      fit(set(K.pay, 0.34, 0, 44), a, ...toNdc(0.1, 0.9, vT + 0.02, lay.payT / h - 0.06))
+    }
+    placeCorner(a)
+    // the landing's hold: a barely-there step toward the slab while the copy reads
+    Object.assign(K.land2, K.land)
+    K.land2.d = K.land.d * 0.975
+    Object.assign(K.pay2, K.pay)
+    K.pay2.d = K.pay.d * 0.955
+    Object.assign(K.out, K.pay)
+    K.out.th = K.pay.th * 0.5
+    K.out.ph = 0
+    K.out.d = portrait ? 2.9 : 2.3
+    K.out.nx = 0
+    K.out.ny = -0.1
+    return K
+  }
+
+  /** put the corner piece in the payoff frame's gap between the CTAs and the slab (or hide it) */
+  function placeCorner(aspect: number) {
+    aimProbe(K.pay, aspect)
+    let sx0 = Infinity
+    for (const c of corners) sx0 = Math.min(sx0, pv.copy(c).project(probe).x)
+    const left = portrait ? -0.96 : ((lay.payR + 24) / Math.max(1, lay.w)) * 2 - 1
+    const gap = sx0 - left
+    // portrait: the slab owns the frame's width; the piece would only clip at the edge
+    corner.show = !portrait && gap > 0.16
+    // the gap's centre, on the horizon: cast to the corner's depth
+    const nx = left + gap * 0.5
+    pv.set(nx, 0, 0.5).unproject(probe).sub(probe.position).normalize()
+    const t = (CORNER.z - probe.position.z) / (pv.z || -1e-3)
+    corner.x = probe.position.x + pv.x * t
+    corner.group.position.set(corner.x, FLOOR_Y, CORNER.z)
+  }
+
+  function mix(a: Orbit, b: Orbit, k: number, out: Orbit) {
+    out.th = lerp(a.th, b.th, k)
+    out.ph = lerp(a.ph, b.ph, k)
+    out.d = Math.exp(lerp(Math.log(a.d), Math.log(b.d), k))
+    out.nx = lerp(a.nx, b.nx, k)
+    out.ny = lerp(a.ny, b.ny, k)
+    out.fov = lerp(a.fov, b.fov, k)
+    return out
+  }
+
+  /** the orbit along the story (no allocation) */
+  function orbitAt(local: number, P: typeof K, out: Orbit) {
+    if (local < 0.14) return mix(P.land, P.land2, segment(local, 0, 0.14), out)
+    if (local < 0.42) return mix(P.land2, P.mid, easeSine(segment(local, 0.14, 0.42)), out)
+    if (local < 0.63) return mix(P.mid, P.pay, easeSine(segment(local, 0.42, 0.63)), out)
+    if (local < 0.935) return mix(P.pay, P.pay2, segment(local, 0.63, 0.935), out)
+    return mix(P.pay2, P.out, ease.inOutCubic(segment(local, 0.935, 1)), out)
+  }
+
+  /** the gel at this local: rose → violet over 0.15–0.38, violet → ice over 0.38–0.6 */
+  function gelAt(local: number) {
+    const k1 = easeSine(segment(local, 0.15, 0.38))
+    const k2 = easeSine(segment(local, 0.38, 0.6))
+    gA.copy(GELS[0].a).lerp(GELS[1].a, k1).lerp(GELS[2].a, k2)
+    gB.copy(GELS[0].b).lerp(GELS[1].b, k1).lerp(GELS[2].b, k2)
+  }
+
+  function offsetBox(n: HTMLElement) {
+    let x = 0
+    let y = 0
+    for (let e: HTMLElement | null = n; e && e !== stage && e !== document.body; e = e.offsetParent as HTMLElement | null) {
+      x += e.offsetLeft
+      y += e.offsetTop
+    }
+    return { l: x, t: y, r: x + n.offsetWidth, b: y + n.offsetHeight }
+  }
+
+  function measure(frame: Frame) {
+    lay.w = frame.width
+    lay.h = frame.height
+    lay.at = performance.now()
+    if (!intro || !intro.offsetParent) return
+    const pb = offsetBox(intro)
+    if (pb.b - pb.t > 40) {
+      lay.safeT = pb.t
+      lay.safeB = pb.b
+    }
+    // the right edge of what's written (words, not the column box)
+    let r = 0
+    for (const wd of title.querySelectorAll<HTMLElement>('.rise-w')) r = Math.max(r, offsetBox(wd).r)
+    for (const c of [head.firstElementChild, ...Array.from(foot.children)] as HTMLElement[]) {
+      if (c && getComputedStyle(c).display !== 'none') r = Math.max(r, offsetBox(c).r)
+    }
+    if (r > 0) lay.landR = r
+    let pr = 0
+    for (const c of payInner.children) pr = Math.max(pr, offsetBox(c as HTMLElement).r)
+    if (pr > 0) lay.payR = pr
+    lay.headB = offsetBox(head).b
+    lay.footT = offsetBox(foot).t
+    lay.payT = offsetBox(payInner).t
+  }
+
+  /** the mark's landing-frame screen rect → CSS vars for the loader's match cut */
+  function publishMark(frame: Frame) {
+    poses(frame)
+    if (markKey === posesKey) return
+    markKey = posesKey
+    const w = frame.width
+    const h = frame.height
+    aimProbe(K.land, w / Math.max(1, h))
+    const px = (x: number, y: number) => {
+      pv.set(x, y, markAt.z).project(probe)
+      return [(pv.x * 0.5 + 0.5) * w, (0.5 - pv.y * 0.5) * h]
+    }
+    const s = SLAB.markH
+    const [sx, sy] = px(markAt.x, markAt.y)
+    const [lx] = px(markAt.x - s / 2, markAt.y)
+    const [rx] = px(markAt.x + s / 2, markAt.y)
+    const [, ty] = px(markAt.x, markAt.y + s / 2)
+    const [, by] = px(markAt.x, markAt.y - s / 2)
+    const size = (rx - lx + (by - ty)) / 2
+    if (!Number.isFinite(sx + sy + size)) return
+    const st = document.documentElement.style
+    st.setProperty('--hark-mark-x', `${sx.toFixed(1)}px`)
+    st.setProperty('--hark-mark-y', `${sy.toFixed(1)}px`)
+    st.setProperty('--hark-mark-size', `${size.toFixed(1)}px`)
+  }
+
   return {
     id: 'hero',
     group,
-    anchors: [0.8],
-    init(ctx) {
-      const W = 2.6
-      const H = 3.4
-      const etch = etchMap(W, H, (g, _W, _H, toPx) => {
-        etchMark(g, toPx, { cy: 0.15, height: 1.5 })
-        // a single polished hairline across the lower third
-        const [x0, y0] = toPx(-W * 0.36, -1.1)
-        const [x1] = toPx(W * 0.36, -1.1)
-        g.fillRect(x0, y0 - 1.5, x1 - x0, 3)
-      })
-      box = opalBox({ w: W, h: H, depth: 0.12, gap: 0.34, a: 'blush', b: 'periwinkle', angle: 1.2, hdr: 0.55, frost: 0.62, etch, tubes: 9, tubeHdr: 2.2 })
-      box.group.position.set(0, 0.2, 0)
-      group.add(box.group)
-      for (const x of [-2.6, 2.6]) {
-        const t = lightTube(3.6, { color: x < 0 ? 'blush' : 'periwinkle', hdr: 2.2 })
-        t.group.position.set(x, 0.3, -1.2)
-        group.add(t.group)
-        tubes.push({ part: t, d: new Dimmer(0.9, 0.4) })
-      }
-      const floor = stoneFloor(30, 20, ctx.world.envMap)
-      floor.position.y = -1.6
-      group.add(floor)
-      const pool = caustic({ size: 3.4, color: '#ff9cc2', strength: 0.6 })
-      pool.position.set(0, -1.59, 0.4)
-      group.add(pool)
+    // the CTAs (sr copy item 0): the settled payoff
+    anchors: [0.76],
+    busy: () => dim.busy || cornerDim.busy || !revealed,
+    async init(ctx) {
+      stage = ctx.stage
+      whenRevealed().then(() => (revealed = true))
 
-      intro = el('div', 'ph-copy', undefined, ctx.stage)
-      el('p', 'hud-eyebrow', MICROCOPY.signalEyebrow, intro)
-      el('p', 'hud-body', BRAND.manifesto, intro)
-      el('p', 'hud-label', MICROCOPY.scrollHint + ' ↓', intro)
-      payoff = el('div', 'ph-copy', undefined, ctx.stage)
-      title = rise(el('h1', 'hud-title', undefined, payoff), 'Make the internet <em>listen.</em>')
-      const ctas = el('div', 'ph-ctas', undefined, payoff)
+      // ---------------------------------------------------------------- the slab
+      slab = buildSlab({ ...SLAB, tubes: ctx.mobile ? 9 : 11, envMap: ctx.world.envMap, mobile: ctx.mobile, isFrameTarget: rt => ctx.post.isFrameTarget(rt) })
+      slab.group.position.y = FLOOR_Y
+      group.add(slab.group)
+      pivot.set(0, FLOOR_Y + slab.centerY - 0.08, 0)
+      markAt.set(0, FLOOR_Y + slab.centerY + SLAB.markY, slab.frontZ)
+      const hw = slab.outerW / 2 + 0.13
+      const zb = -slab.frontZ - SLAB.gap - 0.05
+      for (const x of [-hw, hw]) for (const y of [FLOOR_Y, FLOOR_Y + slab.centerY + slab.outerH / 2]) for (const z of [zb, slab.frontZ + 0.1]) corners.push(new THREE.Vector3(x, y, z))
+      await nextFrame()
+
+      // ---------------------------------------------------------------- the room
+      const floor = stoneFloor(80, 60, ctx.world.envMap)
+      floor.position.set(0, FLOOR_Y, -6)
+      group.add(floor)
+      // the stone's own reflections turn with the studio too
+      slab.envMats.push(floor.material as THREE.MeshStandardMaterial)
+      fl = floorLight(30, 0, 0, FLOOR_Y)
+      // trace the reflection from the camera actually rendering (no one-frame lag)
+      fl.mesh.onBeforeRender = (_r, _s, cam) => fl.u.uCam.value.setFromMatrixPosition(cam.matrixWorld)
+      group.add(fl.mesh)
+      // the corner piece: a standing hairline + one lying on the floor from its foot
+      const hair = (a: THREE.Vector3, b: THREE.Vector3, color: string) =>
+        neonFromStrokes([{ pts: [a, b] }], { color, radius: 0.011, hdr: 1.25, blockout: false, electrodes: false, smooth: false, caps: false, radial: 6 })
+      corner.post = hair(new THREE.Vector3(0, 0.02, 0), new THREE.Vector3(0, CORNER.top, 0), DUSK.ice)
+      corner.run = hair(new THREE.Vector3(-0.06, 0.012, 0), new THREE.Vector3(-0.06 - CORNER.run, 0.012, 0), DUSK.warm)
+      corner.group.add(corner.post.group, corner.run.group)
+      group.add(corner.group)
+
+      // ---------------------------------------------------------------- DOM
+      // landing: eyebrow + the h1, then the manifesto and the scroll hint
+      intro = el('div', 'hero-intro', undefined, ctx.stage)
+      const introInner = el('div', 'hero-intro-inner', undefined, intro)
+      head = el('div', 'hero-head', undefined, introInner)
+      const eyebrow = el('p', 'hud-eyebrow hero-eyebrow', undefined, head)
+      const eb = el('span', 'hero-eyebrow-text', undefined, eyebrow)
+      MICROCOPY.signalEyebrow.split(' · ').forEach((part, i) => {
+        if (i) eb.append(' · ')
+        el('span', 'hero-nowrap', part, eb)
+      })
+      title = rise(el('h1', 'hud-title hero-title', undefined, head), BRAND.tagline.replace(/(\S+)$/, '<em>$1</em>'))
+      foot = el('div', 'hero-foot', undefined, introInner)
+      el('p', 'hud-body hero-manifesto', BRAND.manifesto, foot)
+      el('p', 'hud-label hero-hint', MICROCOPY.scrollHint + ' ↓', foot)
+
+      // payoff: the lit slab is the headline; the locale line and the two CTAs
+      payoff = el('div', 'hero-payoff', undefined, ctx.stage)
+      payInner = el('div', 'hero-pay-inner', undefined, payoff)
+      const loc = el('span', 'hero-eyebrow-text', undefined, el('p', 'hud-eyebrow hero-locale', undefined, payInner))
+      BRAND.locale.split(' · ').forEach((part, i) => {
+        if (i) loc.append(' · ')
+        el('span', 'hero-nowrap', part, loc)
+      })
+      const ctas = el('div', 'hero-ctas', undefined, payInner)
       const see = el('button', 'hud-btn', 'See the work', ctas)
       see.type = 'button'
       see.addEventListener('click', () => window.__hark?.land('work'))
@@ -70,18 +391,80 @@ export default function create(): Chapter {
         window.__hark.land('contact')
       })
     },
+
     update(local, frame, ctx) {
-      box.setLevel(dim.update(true, frame.dt))
-      for (const t of tubes) t.part.setLevel(t.d.update(true, frame.dt))
+      // the same test as the CSS (max-aspect-ratio: 1/1): a square frame is portrait
+      const p = frame.height >= frame.width
+      if (p !== portrait) {
+        portrait = p
+        posesKey = ''
+      }
+      if (frame.width !== lay.w || frame.height !== lay.h || performance.now() - lay.at > 1000) measure(frame)
+      publishMark(frame)
+
+      // the light: dims up once after the reveal, then simply lit
+      const lvl = dim.update(revealed, frame.dt)
+      gelAt(local)
+      slab.setColors(gA, gB)
+      slab.setLevel(lvl)
+      slab.cardK.trans = 0.24 * lvl
+      slab.cardK.main = 0
+
+      // the travelling highlight: the studio turns as the camera arcs
+      const turn = lerp(-0.35, 1.25, easeSine(segment(local, 0.1, 0.62))) + 0.25 * easeSine(segment(local, 0.62, 1))
+      for (const m of slab.envMats) m.envMapRotation.y = turn
+
+      // the corner piece dims up once the camera starts round (never at the landing)
+      const cl = cornerDim.update(corner.show && local > 0.2 ? lvl : 0, frame.dt)
+      corner.post!.setLevel(cl)
+      corner.run!.setLevel(cl)
+      corner.group.visible = cl > 0.001
+      const u = fl.u
+      orbitAt(clamp(local), poses(frame), cur)
+      const hw = slab.outerW / 2
+      u.uFace.value.set(-hw, hw, FLOOR_Y + slab.centerY - slab.outerH / 2, FLOOR_Y + slab.centerY + slab.outerH / 2)
+      u.uFaceZ.value = slab.frontZ
+      u.uA.value.copy(gA)
+      u.uB.value.copy(gB)
+      u.uRefl.value = 0.55 * lvl
+      u.uPool.value = 0.05 * lvl
+      u.uPoolAt.value.set(0, slab.frontZ + 0.6, 1.9, 1.1)
+      u.uLine0.value.set(corner.x, CORNER.z, FLOOR_Y + CORNER.top, 0.9 * cl)
+      u.uLineC0.value.copy(corner.color)
+      u.uRun.value.set(corner.x - 0.06 - CORNER.run, corner.x - 0.06, CORNER.z, 0.5 * cl)
+      u.uRunC.value.copy(corner.runColor)
+
+      // the world: a soft field of the gel behind the slab, low slits, the studio turning
       const W = ctx.world.params
-      W.field = 0.6
-      W.focus.set(0.35, 0.1)
-      reveal(intro, 1 - smoothstep(0.08, 0.14, local))
-      reveal(payoff, smoothstep(0.62, 0.7, local) * (1 - smoothstep(0.93, 0.97, local)))
-      setRise(title, local > 0.64 && local < 0.95)
+      const aspect = frame.width / Math.max(1, frame.height)
+      W.fieldA = gA
+      W.fieldB = gB
+      W.field = 0.5 * lvl
+      W.fieldSize = portrait ? 0.75 : 0.95
+      W.focus.set(cur.nx * aspect - Math.sin(cur.th) * 0.25, cur.ny + 0.1 - cur.ph * 0.2)
+      W.slits = 0
+      W.envTurn = turn
+      W.key = 0.6
+      W.fill = 0.06
+
+      const PP = ctx.post.params
+      PP.bloomRadius = 0.35
+      PP.bloomThreshold = 1.0
+      PP.bloomStrength = lerp(0.55, 0.35, segment(local, 0.935, 1))
+
+      // copy
+      reveal(intro, 1 - smoothstep(INTRO_HOLD, INTRO_OUT, local))
+      setRise(title, revealed && local < INTRO_OUT)
+      reveal(payoff, smoothstep(PAY_A, PAY_B, local) * (1 - smoothstep(PAY_C, PAY_D, local)))
     },
-    camera(local, frame, out) {
-      framedCamera(out, frame, ease.inOutCubic(segment(local, 0.55, 0.7)), 7.2)
+
+    camera(local: number, frame: Frame, out: CameraPose) {
+      const P = poses(frame)
+      orbitAt(clamp(local), P, cur)
+      const aspect = frame.width / Math.max(1, frame.height)
+      place(cur, aspect, out.position, out.target)
+      out.fov = cur.fov
+      out.parallax = 0.18
     },
   }
 }

@@ -1,0 +1,341 @@
+/* ------------------------------------------------------------------
+   CONTACT · Foyer — the closing panel and sign-off.
+   side (landscape): the panel left, vertically centred in the band
+   stack (portrait): the panel along the bottom of the band
+   contact-fit-1..3: measured step-downs; is-split: two beats (A, then B)
+   Layout is measured in hud.ts: keep the two in sync.
+   ------------------------------------------------------------------ */
+
+.contact-root {
+  position: absolute;
+  inset: 0;
+}
+
+/* the band between the chrome's safe areas (measured, never visible) */
+.contact-probe,
+.contact-dock {
+  position: absolute;
+  left: var(--gutter);
+  right: var(--gutter);
+  top: var(--safe-top);
+  bottom: var(--safe-bottom);
+}
+.contact-probe {
+  visibility: hidden;
+  pointer-events: none;
+}
+.contact-dock {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  pointer-events: none;
+}
+
+/* opaque smoked glass: no backdrop blur over the canvas */
+.contact-panel {
+  --gap: 16px;
+  width: min(480px, 41vw);
+  display: grid;
+  gap: calc(var(--gap) + 4px);
+  padding: 26px 28px 22px;
+  background: rgba(7, 6, 11, 0.95);
+  border-color: rgba(245, 242, 248, 0.1);
+}
+.contact-part {
+  display: grid;
+  gap: var(--gap);
+  align-content: start;
+  min-width: 0;
+}
+.contact-b {
+  padding-top: calc(var(--gap) + 2px);
+  border-top: 1px solid var(--line);
+  gap: calc(var(--gap) - 6px);
+}
+
+.contact-title {
+  font-size: clamp(2.6rem, 4.9vw, 4.9rem);
+  line-height: 0.98;
+}
+.contact-body {
+  max-width: 46ch;
+}
+
+/* the address: the big call to action, thin display type on a lit hairline */
+.contact-cta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 18px;
+}
+.contact-email {
+  position: relative;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.35em;
+  min-height: 44px;
+  padding: 4px 0 10px;
+  font-family: var(--font-display);
+  font-weight: 250;
+  font-size: clamp(26px, 2.55vw, 38px);
+  letter-spacing: -0.025em;
+  line-height: 1.1;
+  color: var(--paper);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.contact-email::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 2px;
+  height: 1px;
+  background: var(--accent-grad);
+  opacity: 0.8;
+  box-shadow: 0 0 10px rgba(255, 150, 190, 0.45);
+  transition: opacity 0.3s ease;
+}
+.contact-go {
+  font-weight: 300;
+  font-size: 0.72em;
+  color: #ffc2d6;
+  transition: transform 0.3s ease;
+}
+.contact-email:hover .contact-go,
+.contact-email:focus-visible .contact-go {
+  transform: translateX(5px);
+}
+.contact-email:hover::after,
+.contact-email:focus-visible::after {
+  opacity: 1;
+}
+.contact-copy {
+  min-height: 40px;
+  padding: 10px 18px;
+}
+.contact-copy.is-copied {
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 194, 214, 0.85),
+    0 0 18px rgba(255, 140, 185, 0.25);
+}
+
+/* other concepts: a gallery wall label of names, each a ≥ 24px target */
+.contact-others {
+  margin: 0;
+}
+.contact-links {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 16px;
+}
+.contact-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 28px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  letter-spacing: 0.04em;
+  color: var(--fg);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.contact-link:hover,
+.contact-link:focus-visible {
+  color: #ffc2d6;
+}
+.contact-arr {
+  opacity: 0.62;
+  font-size: 0.92em;
+}
+
+.contact-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 18px;
+  margin-top: 4px;
+}
+.contact-top {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 0;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--fg);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+.contact-top:hover,
+.contact-top:focus-visible {
+  color: #ffc2d6;
+}
+.contact-legal {
+  margin: 0;
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+}
+.contact-nw {
+  white-space: nowrap;
+}
+
+/* the closing sign-off, centred under the slab */
+.contact-end {
+  position: absolute;
+  left: var(--gutter);
+  right: var(--gutter);
+  bottom: var(--safe-bottom);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  text-align: center;
+  pointer-events: none;
+  visibility: hidden;
+  opacity: 0;
+}
+.contact-top--end {
+  min-height: 40px;
+  padding: 10px 20px;
+  font-size: 12px;
+  color: var(--fg);
+  background: rgba(0, 0, 0, 0.5);
+}
+.contact-top--end:hover,
+.contact-top--end:focus-visible {
+  color: var(--fg);
+}
+.contact-legal--end {
+  color: var(--fg-muted);
+}
+
+/* ---------------- measured step-downs ---------------- */
+.contact-fit-1 .contact-panel {
+  --gap: 12px;
+  padding: 22px 26px 18px;
+}
+.contact-fit-1 .contact-title {
+  font-size: clamp(2.3rem, 4.2vw, 4rem);
+}
+.contact-fit-2 .contact-body {
+  font-size: 14.5px;
+  line-height: 1.5;
+}
+.contact-fit-2 .contact-email {
+  font-size: clamp(24px, 2.3vw, 32px);
+  min-height: 40px;
+}
+.contact-fit-2 .contact-link {
+  min-height: 26px;
+}
+.contact-fit-3 .contact-panel {
+  --gap: 9px;
+  padding: 18px 22px 14px;
+}
+.contact-fit-3 .contact-title {
+  font-size: clamp(2rem, 3.6vw, 3.2rem);
+}
+.contact-fit-3 .contact-body {
+  font-size: 13.5px;
+  line-height: 1.45;
+}
+.contact-fit-3 .contact-copy {
+  min-height: 36px;
+  padding: 8px 16px;
+}
+
+/* ---------------- two beats (short screens) ---------------- */
+.contact-root.is-split .contact-b {
+  display: none;
+}
+.contact-root.is-split.show-b .contact-a {
+  display: none;
+}
+.contact-root.is-split.show-b .contact-b {
+  display: grid;
+  padding-top: 0;
+  border-top: 0;
+}
+
+/* ---------------- portrait: the panel along the bottom ---------------- */
+.contact-root.is-stack .contact-dock {
+  align-items: flex-end;
+  justify-content: center;
+}
+.contact-root.is-stack .contact-panel {
+  width: 100%;
+  max-width: 640px;
+}
+.contact-root.is-stack .contact-title {
+  font-size: clamp(2.3rem, 9vw, 4.4rem);
+}
+.contact-root.is-stack .contact-email {
+  font-size: clamp(25px, 6.6vw, 36px);
+}
+@media (max-width: 480px) {
+  .contact-root.is-stack .contact-panel {
+    padding: 18px 18px 14px;
+    --gap: 12px;
+  }
+  .contact-root.is-stack .contact-body {
+    font-size: 14.5px;
+    line-height: 1.52;
+  }
+  .contact-root.is-stack .contact-links {
+    gap: 0 14px;
+  }
+  .contact-root.is-stack .contact-link {
+    min-height: 30px;
+    font-size: 11px;
+  }
+}
+
+/* ---------------- short landscape (phone sideways, 200% zoom) ---------------- */
+@media (orientation: landscape) and (max-height: 500px) {
+  .contact-panel {
+    width: min(440px, 54vw);
+    padding: 16px 20px 12px;
+    --gap: 9px;
+  }
+  .contact-title {
+    font-size: clamp(1.9rem, 5.2vw, 2.6rem);
+  }
+  .contact-body {
+    font-size: 13px;
+    line-height: 1.45;
+  }
+  .contact-email {
+    font-size: clamp(21px, 3.3vw, 27px);
+    min-height: 36px;
+    padding-bottom: 8px;
+  }
+  .contact-copy {
+    min-height: 34px;
+    padding: 7px 14px;
+    font-size: 11px;
+  }
+  .contact-link {
+    min-height: 26px;
+    font-size: 11px;
+  }
+  .contact-legal {
+    font-size: 10px;
+  }
+  .contact-end {
+    gap: 6px;
+  }
+  .contact-top--end {
+    min-height: 34px;
+    padding: 7px 16px;
+  }
+}

@@ -1,0 +1,168 @@
+/* SERVICES · Spectrum — chapter-scoped layout (.sv-) */
+
+.sv-intro {
+  position: absolute;
+  left: var(--gutter);
+  top: var(--safe-top);
+  max-width: min(640px, calc(100vw - 2 * var(--gutter)));
+  display: grid;
+  gap: 16px;
+}
+/* two lines: "Eleven ways / to be heard." */
+.sv-intro .hud-h2 {
+  max-width: 7.4em;
+}
+
+/* the service card: smoked glass, its top hairline lit in the fin's colour.
+   All eleven services sit stacked in ONE grid cell, so the card is always
+   as tall as the tallest (it never jumps) without measuring; only the shown
+   one is visible. Opaque plate, no backdrop blur (GPU cost). */
+.sv-card {
+  position: absolute;
+  left: var(--gutter);
+  bottom: var(--safe-bottom);
+  width: min(430px, 37vw);
+  max-height: calc(100% - var(--safe-top) - var(--safe-bottom));
+  display: grid;
+  padding: 22px 24px 22px;
+  background: rgba(7, 6, 10, 0.86);
+}
+.sv-card::before {
+  background: linear-gradient(90deg, transparent, var(--sv-core, #ffd9e6) 18%, var(--sv-core, #ffd9e6) 82%, transparent);
+  box-shadow:
+    0 0 10px var(--sv-glow, rgba(255, 176, 200, 0.7)),
+    0 0 26px var(--sv-glow-2, rgba(255, 176, 200, 0.28));
+  opacity: 0.9;
+  transition: background 0.4s ease;
+}
+.sv-body {
+  grid-area: 1 / 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.sv-row {
+  margin-bottom: auto;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.sv-row p {
+  margin: 0;
+}
+.sv-num {
+  color: var(--fg);
+}
+/* a short tube of the fin's light, seen through frost */
+.sv-chip {
+  flex: 0 0 auto;
+  width: 36px;
+  height: 3px;
+  border-radius: 3px;
+  background: var(--sv-core, #ffd9e6);
+  box-shadow:
+    0 0 6px var(--sv-glow, rgba(255, 176, 200, 0.7)),
+    0 0 16px var(--sv-glow-2, rgba(255, 176, 200, 0.28));
+}
+.sv-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 300;
+  font-size: clamp(1.7rem, 2.5vw, 2.5rem);
+  line-height: 1.04;
+  letter-spacing: -0.025em;
+  color: var(--paper);
+  text-wrap: balance;
+}
+.sv-blurb {
+  max-width: none;
+}
+.sv-tags {
+  margin-top: 2px;
+}
+
+/* portrait (phones, tall tablets): the card owns the bottom band, full width */
+@media (orientation: portrait) {
+  .sv-card {
+    right: var(--gutter);
+    width: auto;
+    max-width: 600px;
+    padding: 18px 18px 18px;
+  }
+  .sv-title {
+    font-size: clamp(1.5rem, 6vw, 2.2rem);
+  }
+}
+@media (orientation: portrait) and (min-width: 700px) {
+  .sv-card {
+    left: 50%;
+    right: auto;
+    width: min(600px, calc(100vw - 2 * var(--gutter)));
+    transform: translateX(-50%);
+  }
+}
+
+/* phones: the intro gets a readable plate over the row */
+@media (max-width: 760px) {
+  .sv-intro {
+    right: var(--gutter);
+    max-width: none;
+    padding: 16px 18px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+  }
+  .sv-body {
+    gap: 9px;
+  }
+  .sv-blurb {
+    font-size: 14.5px;
+    line-height: 1.5;
+  }
+}
+@media (max-height: 700px) and (orientation: portrait) {
+  .sv-blurb {
+    font-size: 14px;
+    line-height: 1.45;
+  }
+  .sv-tags .hud-tag {
+    padding: 3px 8px;
+  }
+}
+
+/* short landscape (a phone sideways, 200% zoom): a compact card between the
+   chrome bands — smaller type, tight spacing, small tags; the intro plate
+   hugs its words */
+@media (orientation: landscape) and (max-height: 500px) {
+  .sv-intro {
+    right: auto;
+    max-width: min(420px, calc(100vw - 2 * var(--gutter)));
+    gap: 8px;
+    padding: 12px 16px;
+  }
+  .sv-card {
+    width: min(400px, 47vw);
+    padding: 12px 16px 13px;
+    overflow: hidden;
+  }
+  .sv-body {
+    gap: 7px;
+  }
+  .sv-title {
+    font-size: clamp(1.1rem, 2.4vw, 1.4rem);
+    line-height: 1.08;
+  }
+  .sv-blurb {
+    font-size: 13px;
+    line-height: 1.42;
+  }
+  .sv-tags {
+    gap: 4px;
+    margin-top: 0;
+  }
+  .sv-tags .hud-tag {
+    padding: 2px 8px;
+    font-size: 9.5px;
+  }
+}
