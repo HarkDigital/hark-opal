@@ -16,7 +16,7 @@ import { calmUi } from './prefs'
  * the etched window — so the crisp and the diffused light line up exactly.
  *
  * Exit: the MATCH-CUT. The hero publishes where its own etched mark sits on
- * its landing frame (on <html>, CSS px: --hark-mark-x/-y = the centre of the
+ * its landing frame (on <html>, CSS px: --hark-mark-x/-y = the center of the
  * mark's square SVG viewBox, --hark-mark-size = its side — the viewBox this
  * loader's window is drawn in). The window glides onto that spot while the
  * frosted glass dissolves around it and the black lifts late in the glide;
@@ -65,7 +65,7 @@ const RADIUS = GW * 0.07
 const FEATHER = GH * 0.34
 /** tube bank: fractions across the glass (five of the seven pass behind the mark) */
 const TUBES = [0.11, 0.24, 0.37, 0.5, 0.63, 0.76, 0.89]
-/** DUSK: rose → lilac → periwinkle, one gradient between neighbours */
+/** DUSK: rose → lilac → periwinkle, one gradient between neighbors */
 const TUBE_CORE = ['#ffd0e0', '#ffd6e6', '#f3dcff', '#ecdcff', '#e0d8ff', '#d6dcff', '#d0dcff']
 const TUBE_GLOW = ['#ff7aa8', '#ff8fb8', '#e7a6e6', '#c7a8ff', '#b3a6ff', '#9aa6ff', '#7f9cff']
 
@@ -86,7 +86,7 @@ function play(el: Element | null, frames: Keyframe[], opts: KeyframeAnimationOpt
 
 /**
  * The hero's mark on screen, as the hero chapter publishes it: CSS custom
- * properties on <html>, in px — --hark-mark-x/-y (the centre of the mark's
+ * properties on <html>, in px — --hark-mark-x/-y (the center of the mark's
  * square SVG viewBox) and --hark-mark-size (its side). Null when they're
  * missing, off screen, or the story isn't on the hero's landing frame.
  */
@@ -232,7 +232,7 @@ export function createLoader(root: HTMLElement, { skip = false } = {}) {
       g.setAttribute('y1', f1(edge - FEATHER))
       g.setAttribute('y2', f1(edge))
     }
-    // the rig dims up as it rises (a theatre dimmer, never a flicker)
+    // the rig dims up as it rises (a theater dimmer, never a flicker)
     const level = (0.4 + 0.6 * v).toFixed(3)
     for (const l of lights) l.setAttribute('opacity', level)
     // the etched window comes into focus as the load lands

@@ -1,6 +1,6 @@
 /* ------------------------------------------------------------------
    CONTACT · Foyer — the closing panel and sign-off.
-   side (landscape): the panel left, vertically centred in the band
+   side (landscape): the panel left, vertically centered in the band
    stack (portrait): the panel along the bottom of the band
    contact-fit-1..3: measured step-downs; is-split: two beats (A, then B)
    Layout is measured in hud.ts: keep the two in sync.
@@ -189,7 +189,7 @@
   white-space: nowrap;
 }
 
-/* the closing sign-off, centred under the slab */
+/* the closing sign-off, centered under the slab: the address, Back to top, colophon */
 .contact-end {
   position: absolute;
   left: var(--gutter);
@@ -203,6 +203,12 @@
   pointer-events: none;
   visibility: hidden;
   opacity: 0;
+}
+.contact-email--end {
+  font-size: clamp(24px, 2.3vw, 34px);
+  min-height: 44px;
+  padding-bottom: 8px;
+  margin-bottom: 2px;
 }
 .contact-top--end {
   min-height: 40px;
@@ -333,6 +339,12 @@
   }
   .contact-end {
     gap: 6px;
+  }
+  .contact-email--end {
+    font-size: clamp(20px, 3vw, 24px);
+    min-height: 36px;
+    padding: 2px 0 6px;
+    margin-bottom: 0;
   }
   .contact-top--end {
     min-height: 34px;

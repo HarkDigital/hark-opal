@@ -9,13 +9,13 @@ import { releaseScene } from './prefs'
 /*
  * The plain HTML version, for browsers without WebGL2 (and the last resort
  * if boot fails or the GPU context is gone for good): every chapter's copy,
- * in story order, visible — set as the gallery's EXHIBITION CATALOGUE. A
+ * in story order, visible — set as the gallery's EXHIBITION CATALOG. A
  * black page, thin Hanken Grotesk headings whose last word is the Cormorant
  * italic accent (lit by the rose → lilac → periwinkle gradient), Hanken for
  * the words and Red Hat Mono for the small print. Each chapter is a numbered
  * room with a wall label in the margin ("Room 03 · Spectrum", the room's
  * name in Cormorant italic, a fine hairline of light); the services and the
- * process read as the catalogue's numbered entries, the quotes hang as wall
+ * process read as the catalog's numbered entries, the quotes hang as wall
  * text, the figures are thin lit numerals. The room numbers, hairlines and
  * the colophon are decorative (aria-hidden or plainly not claims); the copy
  * is the live site's, verbatim, from srContent (buildChapterCopy). Links
@@ -58,7 +58,7 @@ export function renderFallback(root: HTMLElement) {
     </nav>`
   const footer = document.createElement('footer')
   footer.className = 'fb-foot fb-band'
-  // a catalogue's colophon: what it is set in (true of this page), no claims
+  // a catalog's colophon: what it is set in (true of this page), no claims
   footer.innerHTML = `
     <span class="fb-foot-mark" aria-hidden="true">${markSvg('fb-foot-svg')}</span>
     <p class="fb-credit">${MICROCOPY.signalEyebrow}</p>
@@ -67,7 +67,7 @@ export function renderFallback(root: HTMLElement) {
   root.after(footer)
   const rooms = CHAPTERS.filter(c => CHAPTER_COPY_IDS.includes(c.id)).length
   root.innerHTML = `<div class="fb fb-band">
-    <p class="fb-kicker" aria-hidden="true"><i></i>Catalogue · ${rooms === 7 ? 'Seven' : String(rooms)} rooms</p>
+    <p class="fb-kicker" aria-hidden="true"><i></i>Catalog · ${rooms === 7 ? 'Seven' : String(rooms)} rooms</p>
     <div class="fb-main" id="fb-main" tabindex="-1"></div>
   </div>`
 
@@ -104,7 +104,7 @@ export function renderFallback(root: HTMLElement) {
     })
     accentHeading(copy)
     markStats(copy)
-    // the catalogue's entry numbers for numbered lists (the <ol> already says it)
+    // the catalog's entry numbers for numbered lists (the <ol> already says it)
     copy.querySelectorAll('ol > li > h3').forEach(h => {
       const li = h.parentElement!
       const n = document.createElement('span')

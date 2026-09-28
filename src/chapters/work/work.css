@@ -27,11 +27,12 @@
   display: grid;
   gap: 12px;
 }
-/* smoked glass, no backdrop blur over the animating canvas */
+/* smoked glass, no backdrop blur over the animating canvas; near-opaque, so a
+   print behind it never reads through the copy */
 .wk-card.hud-panel {
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
-  background: rgba(7, 6, 11, 0.88);
+  background: rgba(7, 6, 11, 0.96);
 }
 /* the top hairline takes the box's own light */
 .wk-card.hud-panel::before {
@@ -60,28 +61,23 @@
   margin-top: 4px;
 }
 
-/* the end of the wall: "Nine more, all live." + Say hello (the names are etched in the board) */
+/* the end of the wall: "Nine more, all live.", the nine as real links (the
+   etched board on the wall is decoration), Say hello */
 .wk-rest {
   --wk-a: #c7a8ff;
   --wk-b: #7f9cff;
-  width: min(340px, 30vw);
+  width: min(360px, 32vw);
   gap: 16px;
 }
 .wk-rest .hud-btn {
   justify-self: start;
 }
 .wk-list {
-  display: none;
+  display: grid;
   margin: 0;
   padding: 0;
   list-style: none;
-  grid-template-columns: max-content max-content;
-  grid-template-rows: repeat(5, auto);
-  grid-auto-flow: column;
-  gap: 3px 18px;
-}
-.wk-rest.is-list .wk-list {
-  display: grid;
+  gap: 5px;
 }
 .wk-list li {
   position: relative;
@@ -90,25 +86,44 @@
   display: inline-block;
   color: var(--fg);
   text-decoration: none;
+  text-underline-offset: 4px;
+  text-decoration-thickness: 1px;
   font-family: var(--font-sans);
-  font-size: 12.5px;
-  line-height: 1.35;
-  white-space: nowrap;
+  font-size: 15px;
+  line-height: 1.4;
 }
 .wk-list a:hover,
 .wk-list a:focus-visible,
 .wk-list li.is-on a {
-  color: #e6ddff;
+  color: #ffffff;
   text-decoration: underline;
-  text-underline-offset: 3px;
+  text-decoration-color: rgba(199, 168, 255, 0.9);
+}
+/* the name you're on: a small lit point in the margin left of it (outside the text, never clipped) */
+.wk-list li::before {
+  content: '';
+  position: absolute;
+  left: -13px;
+  top: calc(0.7em);
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #fff1e4;
+  box-shadow: 0 0 6px rgba(199, 168, 255, 0.95), 0 0 12px rgba(127, 156, 255, 0.55);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+}
+.wk-list li.is-on::before {
+  opacity: 1;
 }
 .wk-arrow {
-  color: var(--fg-faint);
+  color: var(--fg-muted);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 12px;
 }
 
-/* links laid over the etched names: invisible text, a hairline of light under the one you're on */
+/* pointer targets laid over the etched names on the wall (the card's list is the real one) */
 .wk-hits {
   position: absolute;
   inset: 0;
@@ -127,40 +142,6 @@
   border-radius: 6px;
   pointer-events: auto;
   cursor: pointer;
-}
-.wk-hit::after {
-  content: '';
-  position: absolute;
-  left: 8%;
-  right: 8%;
-  bottom: 2px;
-  height: 1px;
-  background: linear-gradient(90deg, rgba(207, 230, 255, 0), rgba(207, 230, 255, 0.9), rgba(207, 230, 255, 0));
-  opacity: 0;
-  transition: opacity 0.3s ease;
-}
-.wk-hit.is-on::after,
-.wk-hit:hover::after,
-.wk-hit:focus-visible::after {
-  opacity: 1;
-}
-/* the focused name's marker: a small lit point left of it */
-.wk-hit::before {
-  content: '';
-  position: absolute;
-  left: -2px;
-  top: 50%;
-  width: 5px;
-  height: 5px;
-  margin-top: -2.5px;
-  border-radius: 50%;
-  background: #fff1e4;
-  box-shadow: 0 0 6px rgba(199, 168, 255, 0.95), 0 0 14px rgba(127, 156, 255, 0.6);
-  opacity: 0;
-  transition: opacity 0.3s ease;
-}
-.wk-hit.is-on::before {
-  opacity: 1;
 }
 
 /* portrait (phones, tablets upright): copy in the bottom band, the box framed above */
@@ -192,8 +173,15 @@
     width: auto;
     gap: 12px;
   }
-  .wk-rest.is-list {
-    gap: 10px;
+  .wk-rest .wk-rest-title {
+    font-size: clamp(1.35rem, 5.4vw, 1.9rem);
+  }
+  .wk-list {
+    gap: 2px;
+  }
+  .wk-list a {
+    font-size: 14.5px;
+    line-height: 1.38;
   }
 }
 @media (orientation: portrait) and (max-height: 700px) {
@@ -250,10 +238,21 @@
   }
   .wk-rest {
     width: auto;
-    max-width: min(520px, 62vw);
+    max-width: min(560px, 64vw);
     gap: 8px;
   }
   .wk-rest-title {
     font-size: clamp(1.25rem, 2.6vw, 1.5rem);
+  }
+  .wk-list {
+    grid-template-columns: max-content max-content;
+    grid-template-rows: repeat(5, auto);
+    grid-auto-flow: column;
+    gap: 1px 26px;
+  }
+  .wk-list a {
+    font-size: 13px;
+    line-height: 1.35;
+    white-space: nowrap;
   }
 }

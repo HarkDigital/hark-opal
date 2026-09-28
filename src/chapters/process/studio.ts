@@ -71,7 +71,7 @@ export function slabGeometry(w: number, h: number, depth: number, radius: number
   return out
 }
 
-/** A pane rect (centre + size, pane units) and the atlas rect it reads (u0, v0, u1, v1). */
+/** A pane rect (center + size, pane units) and the atlas rect it reads (u0, v0, u1, v1). */
 export interface Cell {
   cx: number
   cy: number
@@ -112,10 +112,19 @@ float roughnessFactor = roughness;
 #endif
 `
 
-/** Frosted caps with an etched design read through `cells` of one atlas texture. */
-export function etchedFrost(tex: THREE.Texture, cells: Cell[], o: { frost?: number; thickness?: number } = {}) {
+/**
+ * Frosted caps with an etched design read through `cells` of one atlas texture.
+ * Pass `env` (ctx.world.envMap): the frost then takes only a trace of the
+ * studio (envK) — at the scene's full reflection a rough cap wears a grey veil
+ * that turns dim light behind it to taupe; the polished bevels carry the studio.
+ */
+export function etchedFrost(tex: THREE.Texture, cells: Cell[], o: { frost?: number; thickness?: number; env?: THREE.Texture | null; envK?: number } = {}) {
   const m = frosted({ frost: o.frost ?? 0.56, thickness: o.thickness ?? 0.14 }).clone()
   m.roughnessMap = tex
+  if (o.env) {
+    m.envMap = o.env
+    m.envMapIntensity = o.envK ?? 0.12
+  }
   const u: EtchUniforms = {
     uEtchDraw: { value: 1.02 },
     uEtchPolish: { value: 0.02 },
@@ -146,7 +155,7 @@ export function setCells(u: EtchUniforms, cells: Cell[]) {
   }
 }
 
-/** A canvas texture for an etch atlas (never colour-managed). */
+/** A canvas texture for an etch atlas (never color-managed). */
 export function etchTexture(c: HTMLCanvasElement) {
   const t = new THREE.CanvasTexture(c)
   t.colorSpace = THREE.NoColorSpace
@@ -159,6 +168,19 @@ export function etchTexture(c: HTMLCanvasElement) {
 
 let housingMat: THREE.MeshStandardMaterial | null = null
 let sidesMat: THREE.MeshPhysicalMaterial | null = null
+
+/** the studio's reflection on a polished bevel (its own envMap, so it counts): crisp hairlines along every edge */
+export const BEVEL_ENV = 1.4
+
+/** A polished bevel that carries the studio's hairlines (own envMap: sweep it with envMapRotation, not world envTurn). */
+export function polishedBevel(env: THREE.Texture | null) {
+  const m = polished({ thickness: 0.06 }).clone()
+  if (env) {
+    m.envMap = env
+    m.envMapIntensity = BEVEL_ENV
+  }
+  return m
+}
 
 export interface LightSlabOptions {
   w: number
@@ -194,14 +216,14 @@ export interface LightSlab {
 /**
  * One standing light piece: the glass slab in front, a light card at `gap`
  * behind it, tubes between them, all inside a satin-black housing whose open
- * face the glass covers. Local origin = the glass centre; the glass faces +z.
+ * face the glass covers. Local origin = the glass center; the glass faces +z.
  */
 export function lightSlab(o: LightSlabOptions): LightSlab {
   const group = new THREE.Group()
   const depth = o.depth ?? 0.09
   const gap = o.gap ?? 0.3
   const geo = o.geometry ?? slabGeometry(o.w, o.h, depth, o.radius ?? 0.035, o.mobile)
-  sidesMat ??= polished({ thickness: 0.06 }).clone()
+  sidesMat ??= polishedBevel(o.envMap)
   const glass = new THREE.Mesh(geo, [o.caps, o.sides ?? sidesMat])
   group.add(glass)
 
@@ -293,7 +315,7 @@ const ETCH_LIGHT_FRAG = /* glsl */ `
  * the same cells as the glass in front. The frost spreads it into a soft halo
  * that follows the strokes; the polished strokes show it crisp. (A uniform
  * card behind a polished line reads exactly like the frost around it.)
- * w × h is the plane's size in pane units (centred on the pane).
+ * w × h is the plane's size in pane units (centered on the pane).
  */
 export function etchLight(w: number, h: number, map: THREE.Texture, cells: Cell[], o: { a: string; b?: string; line: string; base: number; hdr: number; soft?: number; gain?: number; bias?: number }) {
   const cellV = [0, 1, 2].map(i => (cells[i] ? new THREE.Vector4(cells[i].cx, cells[i].cy, cells[i].w / 2, cells[i].h / 2) : new THREE.Vector4()))
@@ -349,8 +371,8 @@ const GLINT_FRAG = /* glsl */ `
  * A polished bevel with a hairline of light that travels around the piece's
  * perimeter (uGlintAt 0..1): the finished piece being looked after.
  */
-export function glintBevel(w: number, h: number) {
-  const m = polished({ thickness: 0.06 }).clone()
+export function glintBevel(w: number, h: number, env: THREE.Texture | null) {
+  const m = polishedBevel(env)
   const u = {
     uGlint: { value: new THREE.Color(0, 0, 0) },
     uGlintAt: { value: 0 },
@@ -419,6 +441,40 @@ export function floorSpill(w: number, d: number, back = 0.4) {
       mat.uniforms.uLevel.value = level
     },
   }
+}
+
+// ------------------------------------------------------------------ floor fade
+
+/**
+ * Dissolve the stone floor into the dark outside a world-space box (x0..x1,
+ * z0..z1; soft = fade width in x and z): no hard horizon where its far edge
+ * meets the backdrop. In the shader (world xz), so no alpha canvas to hold.
+ */
+export function fadeFloor(floor: THREE.Mesh, box: { x0: number; x1: number; z0: number; z1: number; softX: number; softZ: number }) {
+  const m = floor.material as THREE.MeshStandardMaterial
+  m.transparent = true
+  const u = {
+    uFloorBox: { value: new THREE.Vector4(box.x0, box.x1, box.z0, box.z1) },
+    uFloorSoft: { value: new THREE.Vector2(box.softX, box.softZ) },
+  }
+  m.onBeforeCompile = sh => {
+    Object.assign(sh.uniforms, u)
+    sh.vertexShader = 'varying vec2 vFloorW;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\nvFloorW = (modelMatrix * vec4(position, 1.0)).xz;')
+    sh.fragmentShader =
+      'varying vec2 vFloorW;\nuniform vec4 uFloorBox;\nuniform vec2 uFloorSoft;\n' +
+      sh.fragmentShader.replace(
+        '#include <alphamap_fragment>',
+        `#include <alphamap_fragment>
+        {
+          vec2 w = vFloorW;
+          float ax = smoothstep(uFloorBox.x - uFloorSoft.x, uFloorBox.x, w.x) * (1.0 - smoothstep(uFloorBox.y, uFloorBox.y + uFloorSoft.x, w.x));
+          float az = smoothstep(uFloorBox.z - uFloorSoft.y, uFloorBox.z, w.y) * (1.0 - smoothstep(uFloorBox.w, uFloorBox.w + uFloorSoft.y, w.y));
+          diffuseColor.a *= ax * az;
+        }`,
+      )
+  }
+  m.customProgramCacheKey = () => 'opal-process-floor'
+  m.needsUpdate = true
 }
 
 // ------------------------------------------------------------------ the design
@@ -563,7 +619,7 @@ export function statCanvas(res: number, weight = 260) {
   g.font = font(big)
   const m1 = g.measureText('10')
   const cap = m1.actualBoundingBoxAscent || big * 0.7
-  // mid: the glyph's own centre sits at the numerals' mid height
+  // mid: the glyph's own center sits at the numerals' mid height
   const runs: { t: string; px: number; w?: number; mid?: boolean; gap?: number }[][] = [
     [{ t: '10', px: big }, { t: 'years', px: big * 0.36, w: weight + 70, gap: big * 0.12 }],
     [{ t: '$', px: big * 0.6, mid: true, gap: 0 }, { t: '1M', px: big, gap: big * 0.03 }, { t: '+', px: big * 0.6, mid: true, gap: big * 0.05 }],
@@ -578,7 +634,7 @@ export function statCanvas(res: number, weight = 260) {
       return wd
     })
     let x = (res - total) / 2
-    // baseline: the numerals' cap centred in the row
+    // baseline: the numerals' cap centered in the row
     const base = k * row + row / 2 + cap / 2
     rs.forEach((r, i) => {
       g.font = font(r.px, r.w)

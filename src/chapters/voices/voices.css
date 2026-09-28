@@ -73,28 +73,23 @@
 /* ---------------- the wall text ---------------- */
 
 .stage-voices .vo-wall {
+  --vo-idx-gap: clamp(16px, 2.4vh, 26px);
   display: grid;
   align-content: center;
-  gap: clamp(16px, 2.4vh, 26px);
   visibility: hidden;
-  transition: visibility 0s linear 0.45s;
+  transition: visibility 0s linear 0.3s;
 }
 .stage-voices .vo-wall.is-on {
   visibility: visible;
   transition-delay: 0s;
 }
+/* each figure carries its own NN / 08 index: it swaps with its quote */
 .stage-voices .vo-idx {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin: 0;
+  margin: 0 0 var(--vo-idx-gap);
   font-variant-numeric: tabular-nums;
-  opacity: 0;
-  transition: opacity 0.35s ease;
-}
-.stage-voices .vo-wall.is-on .vo-idx {
-  opacity: 1;
-  transition: opacity 0.8s ease 0.15s;
 }
 .stage-voices .vo-idx::before {
   content: '';
@@ -107,7 +102,10 @@
   color: var(--fg);
 }
 
-/* the voices share one cell: the stack is as tall as the longest */
+/* the voices share one cell: the stack is as tall as the longest. A quick
+   swap (ux-02): the old voice blurs away in ~0.2 s, the new one fades in
+   sharp over 0.35 s once it has gone — never two quotes on top of each
+   other, and the reader gets the words back within ~0.5 s. */
 .stage-voices .vo-stack {
   display: grid;
 }
@@ -117,23 +115,23 @@
   align-self: start;
   opacity: 0;
   filter: blur(6px);
-  transform: translate3d(0, 8px, 0);
+  transform: translate3d(0, 6px, 0);
   visibility: hidden;
   transition:
-    opacity 0.35s ease,
-    filter 0.4s ease,
-    transform 0.5s ease,
-    visibility 0s linear 0.45s;
+    opacity 0.2s ease,
+    filter 0.24s ease,
+    transform 0.3s ease,
+    visibility 0s linear 0.26s;
 }
 .stage-voices .vo-fig.is-on {
   opacity: 1;
-  filter: blur(0);
+  filter: none;
   transform: none;
   visibility: visible;
   transition:
-    opacity 0.75s ease 0.3s,
-    filter 0.85s ease 0.3s,
-    transform 1.1s cubic-bezier(0.16, 1, 0.3, 1) 0.3s,
+    opacity 0.35s ease 0.17s,
+    filter 0s linear 0.17s,
+    transform 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.17s,
     visibility 0s linear 0s;
 }
 .lowfx .stage-voices .vo-fig {
@@ -195,8 +193,8 @@
     max-width: 8.5em;
   }
   .stage-voices .vo-wall {
+    --vo-idx-gap: 12px;
     align-content: start;
-    gap: 12px;
   }
   .stage-voices .vo-q {
     font-size: clamp(1.05rem, 4.75vw, 1.55rem);
@@ -224,7 +222,7 @@
     font-size: clamp(1.8rem, 5vw, 2.6rem);
   }
   .stage-voices .vo-wall {
-    gap: 10px;
+    --vo-idx-gap: 10px;
   }
   .stage-voices .vo-q,
   .stage-voices .vo-fig--long .vo-q {

@@ -5,7 +5,7 @@ import { SECTIONS, SERVICES } from '../../content'
 import { clamp, lerp, smoothstep } from '../../core/math'
 import { nextFrame } from '../../core/yield'
 import { beat } from '../common'
-import { Dimmer, stoneFloor } from '../../kit/opal'
+import { Dimmer, releaseAfterUpload, stoneFloor } from '../../kit/opal'
 import { StoryClock } from '../../kit/pace'
 import { N, FH, FW, FY, R, arcPoint, buildAtlas, buildCards, buildFins, buildPools, finHex, finT, finTangent, gainOf, spectrum, type Atlas, type Cards, type Pools } from './spectrum'
 import '../chapter.css'
@@ -14,21 +14,25 @@ import './services.css'
 /*
  * SERVICES · "Spectrum". A Dan Flavin corridor, grown up: eleven tall frosted
  * glass fins on black stone in a gentle arc, each backlit by a pair of tubes
- * in one colour of the dusk (blush → rose → lilac → violet → periwinkle →
- * ice → warm white: neighbours close, so the row is ONE spectrum), each with
+ * in one color of the dusk (blush → rose → lilac → violet → periwinkle →
+ * ice → warm white: neighbors close, so the row is ONE spectrum), each with
  * its service's icon and number polished clear into the frost (spectrum.ts,
  * icons.ts).
  *
- *   0.00–0.13  the whole row in perspective, every fin glowing softly; a
+ * Laid out in vh (the chapter is LEN = 7.0 vh long):
+ *   0–0.66 vh  the whole row in perspective, every fin glowing softly; a
  *              light sweeps the polished bevels. "What we do" / Eleven ways
- *              to be heard. (held ≥ 0.35 vh clear of the cut; landing 0.1)
- *   0.135–0.885 eleven beats: the camera glides round the inner arc; the fin
- *              it arrives at dims up (its icon goes crisp and bright),
- *              neighbours stay low so the spectrum still reads; the room's
- *              light field takes that colour; the card names the fin.
- *   0.885–1.0  pull back to the whole spectrum, every fin lit gently and
- *              HELD from 0.885 (no bright finale inside the cut; the
- *              colour-field cut dissolves the row into its own light).
+ *              to be heard. (held ~0.4 vh clear of the cut; landing 0.06)
+ *   0.66–0.86  the glide in to fin 01; its card fades in as the camera lands
+ *   0.84–6.56  eleven beats of 0.52 vh (~2.2 s each at a comfortable wheel,
+ *              so every card — the first and last included — reads fully
+ *              for ~2 s): the camera glides round the inner arc; the fin it
+ *              arrives at dims up (its icon goes crisp and bright),
+ *              neighbors stay low so the spectrum still reads; the room's
+ *              light field takes that color; the card names the fin.
+ *   6.56–7.0   pull back to the whole spectrum, every fin lit gently and
+ *              HELD (no bright finale inside the cut; the color-field cut
+ *              dissolves the row into its own light).
  *
  * PACING (WCAG 2.3.1). Nothing reads `local` directly: a StoryClock turns it
  * into `q`, which follows the scroll at a reading rate (1.1 fins a second; a
@@ -39,12 +43,16 @@ import './services.css'
  * rest the camera settles, the fin dims up (Dimmer, no flicker), the card fills.
  */
 
-const A = 0.135
-const B = 0.885
+/** the chapter's length in vh (chapters/index.ts): the beats below are placed in vh */
+const LEN = 7.0
+const vh = (x: number) => x / LEN
+/** each service: 0.52 vh of scroll (fin 01's card is on from ~A: it gets a full slot too) */
+const A = vh(0.84)
+const B = vh(0.84 + 0.52 * N)
 const SPAN = (B - A) / N
 /** share of a slot spent gliding between fins (the rest is a dwell) */
 const GLIDE = 0.55
-/** levels: the lit fin 1; neighbours; the intro row; the finale row; travelling */
+/** levels: the lit fin 1; neighbors; the intro row; the finale row; traveling */
 const DIM = 0.22
 const INTRO_LV = 0.4
 const OUT_LV = 0.46
@@ -58,12 +66,15 @@ const CHASE_MAX = 10
 /** minimum seconds between two fins lighting (a second guard behind the clock) */
 const LIT_GAP = 0.6
 /** the intro: headline + wide shot until INTRO_OUT; the glide in to fin 01 by WIDE_IN */
-const INTRO_OUT = 0.13
-const WIDE_IN = 0.17
-const LIT_FROM = 0.16
+const INTRO_OUT = vh(0.66)
+const WIDE_IN = vh(0.86)
+const LIT_FROM = vh(0.83)
+/** the card: in over CARD_IN, out over CARD_OUT (just before the finale) */
+const CARD_IN = [vh(0.8), vh(0.86)] as const
+const CARD_OUT = [B - vh(0.02), B + vh(0.04)] as const
 /** the finale: pull back FIN_A–FIN_B; the whole row is lit gently from FIN_A */
-const FIN_A = 0.885
-const FIN_B = 0.925
+const FIN_A = B
+const FIN_B = B + vh(0.16)
 const FOV = 40
 const TAN = Math.tan(((FOV / 2) * Math.PI) / 180)
 
@@ -83,7 +94,7 @@ const trackLinear = (q: number) => clamp((q - A) / SPAN - 0.5, 0, N - 1)
 /** 1 = a wide shot of the whole row (intro, finale) */
 const wideAt = (q: number) => Math.max(1 - smoothstep(INTRO_OUT, WIDE_IN, q), smoothstep(FIN_A, FIN_B, q))
 
-/** a radial fade for the stone floor (alphaMap reads green: grey on black) */
+/** a radial fade for the stone floor (alphaMap reads green: gray on black) */
 function floorFade() {
   const c = document.createElement('canvas')
   c.width = c.height = 256
@@ -97,10 +108,12 @@ function floorFade() {
   g.fillRect(0, 0, 256, 256)
   const t = new THREE.CanvasTexture(c)
   t.colorSpace = THREE.NoColorSpace
+  // static: free the canvas once it's on the GPU (perf-05)
+  releaseAfterUpload(t)
   return t
 }
 
-/** the card's per-fin CSS colours */
+/** the card's per-fin CSS colors */
 function cssVars(hex: string) {
   const n = parseInt(hex.slice(1), 16)
   const r = (n >> 16) & 255
@@ -125,15 +138,23 @@ export default function create(): Chapter {
 
   let stage: HTMLElement
   let intro: HTMLElement, introTitle: HTMLElement
-  /** the card holds all eleven services stacked in one grid cell: always as tall as the tallest, no measuring */
+  /**
+   * the card holds all eleven services stacked in one grid cell (inside a
+   * clip). Its TOP edge is fixed where the tallest service puts it, so the
+   * index row and the title never move between services; the plate's height
+   * follows the service shown (a short glide), so no service sits over an
+   * empty band.
+   */
   let card: HTMLElement
+  let clip: HTMLElement
   let bodies: HTMLElement[] = []
+  let heights: number[] = []
 
   // ---- pacing
   const clock = new StoryClock({ rate: READ_RATE * SPAN })
   let now = 0
   let prevLocal = -1
-  let travelling = false
+  let traveling = false
   let travK = 0
   let cardK = 1
   let shown = 0
@@ -164,15 +185,36 @@ export default function create(): Chapter {
   const paint = (i: number) => {
     for (const [k, v] of Object.entries(cssVars(finHex(i)))) card.style.setProperty(k, v)
   }
-  const swap = (i: number) => {
+  /** size the plate to the service shown (glides; `now` = jump, e.g. while the card is hidden) */
+  const fit = (now = false) => {
+    const hh = heights[shown]
+    if (!(hh > 0)) return
+    if (now) clip.style.transition = 'none'
+    clip.style.height = `${hh}px`
+    if (now) {
+      void clip.offsetHeight
+      clip.style.transition = ''
+    }
+  }
+  const swap = (i: number, now = false) => {
     reveal(bodies[shown], 0, 0)
     shown = i
     paint(i)
+    fit(now)
   }
   const measure = () => {
     if (!card) return
+    // the natural layout first: bottom-anchored, as tall as the tallest service
+    card.style.top = ''
+    card.style.bottom = ''
+    clip.style.height = ''
     cardTop = card.offsetTop
     cardW = card.offsetWidth
+    heights = bodies.map(b => b.offsetHeight)
+    // then pin the top edge there and let the height follow the service shown
+    card.style.top = `${cardTop}px`
+    card.style.bottom = 'auto'
+    fit(true)
   }
 
   /** the pose on fin f (continuous), clear of the card */
@@ -254,7 +296,11 @@ export default function create(): Chapter {
         /* the redraw on fonts.ready covers it */
       }
       atlas = buildAtlas(ctx.mobile ? 512 : 1024)
-      document.fonts?.ready.then(() => atlas.redraw(), () => {})
+      // redraw once the fonts are in, then free the atlas canvas after that upload (perf-05)
+      const fontsReady = document.fonts?.ready ?? Promise.resolve()
+      fontsReady
+        .then(() => atlas.redraw(), () => {})
+        .then(() => releaseAfterUpload(atlas.texture))
       await nextFrame()
       const fins = buildFins(atlas.texture, ctx.world.envMap)
       group.add(fins.mesh)
@@ -278,8 +324,9 @@ export default function create(): Chapter {
       introTitle = rise(el('h2', 'hud-h2', undefined, intro), 'Eleven ways to be <em>heard.</em>')
 
       card = el('div', 'hud-panel sv-card', undefined, stage)
+      clip = el('div', 'sv-clip', undefined, card)
       bodies = SERVICES.map((s, i) => {
-        const b = el('div', 'sv-body', undefined, card)
+        const b = el('div', 'sv-body', undefined, clip)
         const row = el('div', 'sv-row', undefined, b)
         el('p', 'hud-label sv-num', `${s.num} / ${String(N).padStart(2, '0')}`, row)
         el('span', 'sv-chip', undefined, row)
@@ -309,10 +356,10 @@ export default function create(): Chapter {
       const teleport = prevLocal < 0 || Math.abs(local - prevLocal) > 0.12
       prevLocal = local
       const behind = teleport || !Number.isFinite(clock.value) ? 0 : Math.abs(local - clock.value) / SPAN
-      if (travelling ? vel < 0.5 && behind < 0.25 : vel > 0.9 || behind > 1.6) travelling = !travelling
-      clock.rate = SPAN * (travelling ? clamp(CHASE_K * behind, CHASE_MIN, CHASE_MAX) : READ_RATE)
+      if (traveling ? vel < 0.5 && behind < 0.25 : vel > 0.9 || behind > 1.6) traveling = !traveling
+      clock.rate = SPAN * (traveling ? clamp(CHASE_K * behind, CHASE_MIN, CHASE_MAX) : READ_RATE)
       const q = clock.update(local, dt)
-      const tk = travelling ? 1 : 0
+      const tk = traveling ? 1 : 0
       travK = teleport ? tk : approach(travK, tk, dt / 0.35)
       const f = lerp(track(q), trackLinear(q), travK * travK * (3 - 2 * travK))
       camF = f
@@ -326,7 +373,7 @@ export default function create(): Chapter {
       const near = clamp(Math.round(f), 0, N - 1)
       const arrived = Math.abs(f - Math.round(f)) < 0.08 || atRest
       const want = q < LIT_FROM || q > FIN_A ? -1 : arrived ? near : -1
-      if (travelling || want < 0) {
+      if (traveling || want < 0) {
         if (lit >= 0) {
           lit = -1
           darkAt = now
@@ -337,13 +384,13 @@ export default function create(): Chapter {
       }
 
       // ---- fin levels
-      let busy = clock.busy || (!travelling && want !== lit)
+      let busy = clock.busy || (!traveling && want !== lit)
       let top = 0
       for (let i = 0; i < N; i++) {
         let tgt: number
         if (q < LIT_FROM) tgt = INTRO_LV
         else if (q > FIN_A) tgt = OUT_LV
-        else if (travelling) tgt = TRAVEL_LV
+        else if (traveling) tgt = TRAVEL_LV
         else tgt = i === lit ? 1 : DIM
         const d = dimmers[i]
         if (teleport) d.set(tgt)
@@ -359,7 +406,7 @@ export default function create(): Chapter {
         pu[i] = levels[i]
       }
 
-      // ---- the room: its light field takes the colour the camera faces
+      // ---- the room: its light field takes the color the camera faces
       const wide = camWide
       const tc = lerp(finT(f), 0.5, wide)
       spectrum(tc - lerp(0.02, 0.35, wide), colA)
@@ -368,14 +415,16 @@ export default function create(): Chapter {
       wp.fieldA = colA
       wp.fieldB = colB
       wp.fieldAngle = Math.PI / 2
-      // pale light (ice, warm white) reads far brighter at the same level: normalise
+      // pale light (ice, warm white) reads far brighter at the same level: normalize
       wp.field = lerp((0.35 + 0.35 * top) * Math.min(1, gainOf(colA) * 1.15), 0.55, wide)
       wp.fieldSize = lerp(1.0, 1.5, wide)
-      wp.slits = lerp(0.04, 0.12, wide)
+      // no slits in the wide shots: they drop onto the fin tops and read as
+      // wires hanging the glass (ux-14); a trace of them in the close beats
+      wp.slits = 0.04 * (1 - wide)
       wp.key = 0.5
       wp.fill = 0.06
       // a light sweeping the polished bevels while the row rests (intro)
-      wp.envTurn = calm ? 0.4 : 0.4 + Math.sin(frame.time * 0.22) * 0.5 * (1 - smoothstep(0.1, 0.16, q))
+      wp.envTurn = calm ? 0.4 : 0.4 + Math.sin(frame.time * 0.22) * 0.5 * (1 - smoothstep(vh(0.42), vh(0.67), q))
       // the field sits behind the lit fin's screen position
       arcPoint(f, R, FY, fp)
       ndc.copy(fp).project(ctx.camera)
@@ -389,17 +438,17 @@ export default function create(): Chapter {
       pp.bloomRadius = 0.45
 
       // ---- copy (from q, so the words and the camera agree)
-      reveal(intro, 1 - smoothstep(INTRO_OUT, INTRO_OUT + 0.014, q))
-      setRise(introTitle, q > 0.012 && q < INTRO_OUT + 0.008)
-      const cardVis = smoothstep(0.158, 0.172, q) * (1 - smoothstep(0.872, 0.886, q))
-      const ck = travelling ? 0 : 1
-      cardK = teleport || calm ? ck : approach(cardK, ck, dt / (travelling ? 0.2 : 0.3))
+      reveal(intro, 1 - smoothstep(INTRO_OUT, INTRO_OUT + vh(0.06), q))
+      setRise(introTitle, q > vh(0.05) && q < INTRO_OUT + vh(0.034))
+      const cardVis = smoothstep(CARD_IN[0], CARD_IN[1], q) * (1 - smoothstep(CARD_OUT[0], CARD_OUT[1], q))
+      const ck = traveling ? 0 : 1
+      cardK = teleport || calm ? ck : approach(cardK, ck, dt / (traveling ? 0.2 : 0.3))
       const vis = cardVis * cardK
       // the card always names the fin the camera is on: never an empty panel
       const cur = clamp(Math.round(f), 0, N - 1)
       if (cur !== shown) {
         if (calm || teleport || vis < 0.02) {
-          swap(cur)
+          swap(cur, true)
           bodyK = 1
         } else {
           bodyK = Math.max(0, bodyK - dt / 0.12)

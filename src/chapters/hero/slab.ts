@@ -21,7 +21,7 @@ import { neonFromStrokes, type NeonPart } from '../../kit/neon'
  *             when the camera arcs past the slab's edge
  *   plinth    satin black stone the glass stands in
  *
- * Everything sits in slab space: glass centred on x = 0, standing on
+ * Everything sits in slab space: glass centered on x = 0, standing on
  * y = 0 (the floor), front face toward +z. The etch map covers only the
  * mark's square (sharper window edges than a whole-slab map at the same
  * resolution); ClampToEdge keeps the rest of the face frosted.
@@ -37,7 +37,7 @@ export interface SlabOptions {
   /** gap between the glass's back face and the light card */
   gap: number
   tubes: number
-  /** the mark's SVG viewBox side (world) and its centre height above the glass's centre */
+  /** the mark's SVG viewBox side (world) and its center height above the glass's center */
   markH: number
   markY: number
   plinthH: number
@@ -76,7 +76,7 @@ export interface Slab {
   envMats: THREE.MeshStandardMaterial[]
   /** z of the glass's front face (slab space) */
   frontZ: number
-  /** y of the glass's centre (slab space; the floor is 0) */
+  /** y of the glass's center (slab space; the floor is 0) */
   centerY: number
   /** outer size of the glass incl. bevel */
   outerW: number
@@ -118,7 +118,8 @@ export function buildSlab(o: SlabOptions): Slab {
   const geo = smoothExtrude(roundedRect(o.w, o.h, 0.035), { depth: o.depth, bevel: o.bevel, bevelSegments: o.mobile ? 4 : 7, curveSegments: 6 })
   // the etch: the mark's square only, sharp; clamp keeps the rest frosted
   const S = o.markH * 1.08
-  const etch = etchMap(S, S, (g, _W, _H, toPx) => etchMark(g, toPx, { cx: 0, cy: 0, height: o.markH }), o.mobile ? 512 : 1024)
+  // static (no text, never redrawn): free the canvas once it's on the GPU (perf-05)
+  const etch = etchMap(S, S, (g, _W, _H, toPx) => etchMark(g, toPx, { cx: 0, cy: 0, height: o.markH }), o.mobile ? 512 : 1024, true)
   etch.repeat.set(1 / S, 1 / S)
   etch.offset.set(0.5, 0.5 - o.markY / S)
   etch.anisotropy = 8

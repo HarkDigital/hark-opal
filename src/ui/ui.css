@@ -3,7 +3,7 @@
 
    The gallery's own wall text: quiet and exact. White type — Hanken
    Grotesk for names, Red Hat Mono caps for anything counted or switched,
-   Cormorant italic for the rooms' names — hairlines, and colour only where
+   Cormorant italic for the rooms' names — hairlines, and color only where
    something is ON: a fine hairline lit by the accent gradient (rose → lilac
    → periwinkle) under the room you're in, a small glass tile that lights on
    a switch that's on. The Hark mark is always white. No backdrop-filter on
@@ -1117,7 +1117,7 @@ html.motion-off .rot-phone {
   padding: 11px 18px;
 }
 
-/* ---------------- fallback: the exhibition catalogue (src/ui/fallback.ts) ---------------- */
+/* ---------------- fallback: the exhibition catalog (src/ui/fallback.ts) ---------------- */
 html.no-webgl {
   background: #000;
 }
@@ -1126,7 +1126,7 @@ html.no-webgl body {
     radial-gradient(70% 420px at 50% 0%, rgba(199, 168, 255, 0.09), rgba(199, 168, 255, 0) 72%) no-repeat,
     #000;
 }
-/* header (banner), the rooms in <main>, footer (contentinfo): one centred column */
+/* header (banner), the rooms in <main>, footer (contentinfo): one centered column */
 .fb-band {
   box-sizing: border-box;
   max-width: 1040px;

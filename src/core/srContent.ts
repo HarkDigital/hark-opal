@@ -67,6 +67,7 @@ const COPY: Record<string, () => string> = {
     <p>${esc(SECURITY.eyebrow)}.</p>
     <p>${esc(SECURITY.body)}</p>
     <p>${esc(STAT_247.value)}: ${esc(STAT_247.label)}</p>
+    <p>Hardening · Monitoring · Backups</p>
     <p><a href="${esc(SECURITY.href)}" data-anchor="0">${esc(SECURITY.cta.replace(/\s*→\s*$/, ''))}</a></p>`,
 
   voices: () => `

@@ -1,38 +1,102 @@
 import * as THREE from 'three'
-import { textStrokes, type Stroke } from '../../kit/type'
+import { releaseAfterUpload } from '../../kit/opal'
 
 /*
- * What is polished clear in each panel of the partition (etch canvases are
- * white = frosted, BLACK = polished; see kit/opal etchMap). Every polished
- * window has its own light line right behind it, so it reads crisp.
+ * What is polished CLEAR in each panel of the partition. Etch canvases are
+ * white = frosted, BLACK = polished (kit/opal etchMap). Every design is a
+ * FILLED window (a clear glass numeral, a clear glass padlock), never a
+ * hairline: the light drawn right behind it (rig.ts windowLight) fills the
+ * window crisp and glows through the frost around it.
  */
 
 export type ToPx = (x: number, y: number) => [number, number]
 
-/** The 24/7 numerals as single-stroke centerlines (EMS Readability: a clean 7, a straight slash). */
-export function numeralStrokes(size: number, cx: number, cy: number, z: number): Stroke[] {
-  const t = textStrokes('24/7', { font: 'sans', size, tracking: 0.12 })
-  return t.strokes.map(s => ({ pts: s.pts.map(p => new THREE.Vector3(p.x + cx, p.y + cy, z)) }))
+export interface RegionEtch {
+  tex: THREE.CanvasTexture
+  /** repaint (after a late font swap) */
+  repaint(): void
+  /** free the canvas once it's on the GPU (call after any repaint) */
+  release(): void
 }
 
-/** Polish a set of strokes (panel-local coordinates) as round-capped windows `width` wide. */
-export function etchStrokes(g: CanvasRenderingContext2D, toPx: ToPx, strokes: Stroke[], width: number, scale: number) {
-  g.lineWidth = width * scale
-  g.lineCap = 'round'
-  g.lineJoin = 'round'
-  g.strokeStyle = '#000'
-  for (const s of strokes) {
-    g.beginPath()
-    s.pts.forEach((p, i) => {
-      const [x, y] = toPx(p.x, p.y)
-      if (i) g.lineTo(x, y)
-      else g.moveTo(x, y)
-    })
-    g.stroke()
+/**
+ * kit/opal etchMap for a REGION of a pane: w × h panel units centred at
+ * (0, cy) on a pane whose caps carry panel-unit UVs. ClampToEdge keeps the
+ * rest of the face frosted (the border is white), so the map's pixels go
+ * where the designs are (sharper windows at the same size). `draw` works in
+ * panel-local units through toPx.
+ */
+export function regionEtch(w: number, h: number, cy: number, draw: (g: CanvasRenderingContext2D, toPx: ToPx, scale: number) => void, res: number): RegionEtch {
+  const W = w >= h ? res : Math.max(16, Math.round((res * w) / h))
+  const H = w >= h ? Math.max(16, Math.round((res * h) / w)) : res
+  const c = document.createElement('canvas')
+  c.width = W
+  c.height = H
+  const g = c.getContext('2d')!
+  const sx = W / w
+  const sy = H / h
+  const toPx: ToPx = (x, y) => [(x + w / 2) * sx, (h / 2 - (y - cy)) * sy]
+  const paint = () => {
+    g.fillStyle = '#fff'
+    g.fillRect(0, 0, W, H)
+    draw(g, toPx, sx)
+  }
+  paint()
+  const tex = new THREE.CanvasTexture(c)
+  tex.colorSpace = THREE.NoColorSpace
+  tex.anisotropy = 4
+  tex.repeat.set(1 / w, 1 / h)
+  tex.offset.set(0.5, 0.5 - cy / h)
+  tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping
+  let released = false
+  return {
+    tex,
+    repaint() {
+      if (released) return
+      paint()
+      tex.needsUpdate = true
+    },
+    release() {
+      if (released) return
+      released = true
+      releaseAfterUpload(tex)
+    },
   }
 }
 
-/** A thin horizontal slot (an indicator window), centred at (cx, cy), panel-local. */
+/** The display face (DOM-loaded; the chapter awaits it and redraws on fonts.ready). */
+export const NUM_FONT = '"Hanken Grotesk Variable", "Hanken Grotesk", system-ui, sans-serif'
+export const NUM_WEIGHT = 360
+
+/**
+ * "24/7" polished clear, set in the site's display face: centred at (cx, cy)
+ * (panel-local units), its figures `capH` tall, fitted to `maxW`. Returns
+ * whether the real face was used (the chapter redraws on fonts.ready).
+ */
+export function etchNumerals(g: CanvasRenderingContext2D, toPx: ToPx, scale: number, text: string, cx: number, cy: number, capH: number, maxW: number) {
+  const probe = 200
+  g.font = `${NUM_WEIGHT} ${probe}px ${NUM_FONT}`
+  const m = g.measureText(text)
+  const cap = m.actualBoundingBoxAscent || probe * 0.7
+  const inkW = (m.actualBoundingBoxLeft || 0) + (m.actualBoundingBoxRight || m.width)
+  // size so the figures stand capH tall, unless that's wider than maxW
+  const px = Math.min((capH * scale * probe) / cap, (maxW * scale * probe) / Math.max(1, inkW))
+  g.font = `${NUM_WEIGHT} ${px}px ${NUM_FONT}`
+  const n = g.measureText(text)
+  const left = n.actualBoundingBoxLeft || 0
+  const right = n.actualBoundingBoxRight || n.width
+  const asc = n.actualBoundingBoxAscent || px * 0.7
+  const desc = n.actualBoundingBoxDescent || 0
+  const [x0, y0] = toPx(cx, cy)
+  g.fillStyle = '#000'
+  g.textAlign = 'left'
+  g.textBaseline = 'alphabetic'
+  // centre the INK box (the slash descends a little below the baseline)
+  g.fillText(text, x0 - (right - left) / 2 + left, y0 + (asc - desc) / 2)
+  return !!document.fonts?.check?.(`${NUM_WEIGHT} 64px ${NUM_FONT.split(',')[0]}`, text)
+}
+
+/** A slim horizontal slot (an indicator window), centred at (cx, cy), panel-local. */
 export function etchSlot(g: CanvasRenderingContext2D, toPx: ToPx, cx: number, cy: number, len: number, h: number) {
   const [x0, y0] = toPx(cx - len / 2, cy + h / 2)
   const [x1, y1] = toPx(cx + len / 2, cy - h / 2)
@@ -43,30 +107,28 @@ export function etchSlot(g: CanvasRenderingContext2D, toPx: ToPx, cx: number, cy
   g.fill()
 }
 
-/** Padlock proportions (body centre cx, cy; body width w), shared by the etch and its light line. */
-function lockDims(cx: number, cy: number, w: number) {
-  const bh = w * 0.78
-  return { bh, r: w * 0.1, sw: w * 0.13, sr: w * 0.29, top: cy + bh / 2, legTop: cy + bh / 2 + w * 0.2, ins: w * 0.075 }
-}
-
 /**
- * The padlock: a solid polished body with a frosted keyhole, a polished
- * shackle (a thick U). Centre of the BODY at (cx, cy), `w` = body width.
- * Panel-local units.
+ * The padlock, drawn with the same pen as the numerals: a polished line
+ * `stroke` wide round the body and along the shackle (a U whose legs meet
+ * the body), and a small polished keyhole. Centre of the BODY at (cx, cy),
+ * `w` = body width (outer). Panel-local units.
  */
-export function etchPadlock(g: CanvasRenderingContext2D, toPx: ToPx, scale: number, cx: number, cy: number, w: number) {
-  const d = lockDims(cx, cy, w)
-  const [bx0, by0] = toPx(cx - w / 2, cy + d.bh / 2)
-  g.fillStyle = '#000'
-  g.beginPath()
-  g.roundRect(bx0, by0, w * scale, d.bh * scale, d.r * scale)
-  g.fill()
-  // shackle: a U whose legs sink into the body
-  g.lineWidth = d.sw * scale
-  g.lineCap = 'butt'
+export function etchPadlock(g: CanvasRenderingContext2D, toPx: ToPx, scale: number, cx: number, cy: number, w: number, stroke: number) {
+  const d = lockDims(cy, w, stroke)
+  const hs = stroke / 2
   g.strokeStyle = '#000'
+  g.fillStyle = '#000'
+  g.lineWidth = stroke * scale
+  g.lineJoin = 'round'
+  // body: the line's centre runs half a stroke inside the outer edge
+  const [bx0, by0] = toPx(cx - w / 2 + hs, d.top - hs)
   g.beginPath()
-  const [lx, ly0] = toPx(cx - d.sr, d.top - d.sw * 0.3)
+  g.roundRect(bx0, by0, (w - stroke) * scale, (d.bh - stroke) * scale, Math.max(0, d.r - hs) * scale)
+  g.stroke()
+  // shackle: legs from the body's top edge up into a half round
+  g.lineCap = 'butt'
+  g.beginPath()
+  const [lx, ly0] = toPx(cx - d.sr, d.top - hs)
   const [, ly1] = toPx(cx - d.sr, d.legTop)
   g.moveTo(lx, ly0)
   g.lineTo(lx, ly1)
@@ -75,18 +137,17 @@ export function etchPadlock(g: CanvasRenderingContext2D, toPx: ToPx, scale: numb
   const [rx] = toPx(cx + d.sr, d.legTop)
   g.lineTo(rx, ly0)
   g.stroke()
-  // keyhole: frosted (white) inside the polished body
-  g.fillStyle = '#fff'
-  const ky0 = cy + d.bh * 0.06
-  const [kx, ky] = toPx(cx, ky0)
-  const kr = w * 0.075
+  // keyhole: a small polished round + a short stem
+  const ky = cy + d.bh * 0.06
+  const kr = w * 0.07
+  const [kx, kyp] = toPx(cx, ky)
   g.beginPath()
-  g.arc(kx, ky, kr * scale, 0, Math.PI * 2)
+  g.arc(kx, kyp, kr * scale, 0, Math.PI * 2)
   g.fill()
-  const [sx0, sy0] = toPx(cx - kr * 0.4, ky0)
-  const [sx1, sy1] = toPx(cx - kr * 0.6, cy - d.bh * 0.24)
-  const [sx2] = toPx(cx + kr * 0.6, cy - d.bh * 0.24)
-  const [sx3] = toPx(cx + kr * 0.4, ky0)
+  const [sx0, sy0] = toPx(cx - kr * 0.36, ky)
+  const [sx1, sy1] = toPx(cx - kr * 0.5, cy - d.bh * 0.2)
+  const [sx2] = toPx(cx + kr * 0.5, cy - d.bh * 0.2)
+  const [sx3] = toPx(cx + kr * 0.36, ky)
   g.beginPath()
   g.moveTo(sx0, sy0)
   g.lineTo(sx1, sy1)
@@ -96,50 +157,14 @@ export function etchPadlock(g: CanvasRenderingContext2D, toPx: ToPx, scale: numb
   g.fill()
 }
 
-/** The padlock's light line: an inset outline of the body + the shackle's centreline (x/y offset into world, z). */
-export function padlockStrokes(cx: number, cy: number, w: number, ox: number, oy: number, z: number): Stroke[] {
-  const d = lockDims(cx, cy, w)
-  const V = (x: number, y: number) => new THREE.Vector3(x + ox, y + oy, z)
-  const hw = w / 2 - d.ins
-  const hh = d.bh / 2 - d.ins
-  const r = d.r * 0.7
-  const body: THREE.Vector3[] = []
-  const corners: [number, number, number][] = [
-    [cx + hw - r, cy + hh - r, 0],
-    [cx - hw + r, cy + hh - r, Math.PI / 2],
-    [cx - hw + r, cy - hh + r, Math.PI],
-    [cx + hw - r, cy - hh + r, (3 * Math.PI) / 2],
-  ]
-  for (const [x, y, a0] of corners) for (let i = 0; i <= 5; i++) {
-    const a = a0 + (i / 5) * (Math.PI / 2)
-    body.push(V(x + Math.cos(a) * r, y + Math.sin(a) * r))
-  }
-  body.push(body[0].clone())
-  const shackle: THREE.Vector3[] = [V(cx - d.sr, d.top - d.ins * 0.2)]
-  for (let i = 0; i <= 16; i++) {
-    const a = Math.PI - (i / 16) * Math.PI
-    shackle.push(V(cx + Math.cos(a) * d.sr, d.legTop + Math.sin(a) * d.sr))
-  }
-  shackle.push(V(cx + d.sr, d.top - d.ins * 0.2))
-  return [{ pts: shackle }, { pts: body }]
+function lockDims(cy: number, w: number, stroke: number) {
+  const bh = w * 0.78
+  const top = cy + bh / 2
+  return { bh, top, r: w * 0.12, sr: w * 0.3 - stroke * 0.5, legTop: top + w * 0.2 }
 }
 
-/** A jagged crack as one polyline (deterministic), from a to b with `n` kinks. */
-export function crackStroke(a: THREE.Vector2, b: THREE.Vector2, z: number, n = 9, amp = 0.09, seed = 7): Stroke {
-  let s = seed
-  const rnd = () => {
-    s = (s * 16807) % 2147483647
-    return (s - 1) / 2147483646
-  }
-  const d = b.clone().sub(a)
-  const nrm = new THREE.Vector2(-d.y, d.x).normalize()
-  const pts: THREE.Vector3[] = []
-  for (let i = 0; i <= n; i++) {
-    const t = i / n
-    const off = i === 0 || i === n ? 0 : (rnd() - 0.5) * 2 * amp * (0.6 + 0.4 * Math.sin(t * Math.PI))
-    const along = i === 0 || i === n ? 0 : (rnd() - 0.5) * 0.25 / n
-    const p = a.clone().addScaledVector(d, t + along).addScaledVector(nrm, off)
-    pts.push(new THREE.Vector3(p.x, p.y, z))
-  }
-  return { pts }
+/** The padlock's overall height above its body centre (for framing / the etch region). */
+export function padlockTop(cy: number, w: number, stroke: number) {
+  const d = lockDims(cy, w, stroke)
+  return d.legTop + d.sr + stroke / 2
 }

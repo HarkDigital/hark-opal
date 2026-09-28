@@ -7,20 +7,25 @@ import { nextFrame } from '../../core/yield'
 import { loadScreenshot, whenRevealed } from '../../kit/images'
 import { Dimmer, stoneFloor } from '../../kit/opal'
 import { StoryClock } from '../../kit/pace'
-import { board, etchFonts, FACE_Z, GH, GW, hex, LABEL_H, LABEL_Y, lightBox, sharedMaterials, wall, type Board, type Light, type LightBox } from './gallery'
+import { board, etchFonts, FACE_Z, GH, GW, hex, LABEL_H, LABEL_Y, lightBox, PRINT_BEHIND, PRINT_DIM, sharedMaterials, wall, type Board, type Light, type LightBox } from './gallery'
 import './work.css'
 
 /*
  * WORK · LIGHT BOXES. A long black gallery wall, lit only by the works. Each
- * of the six featured projects is a museum light box: its screenshot a crisp
- * print in a slim black frame, set on a thick frosted opal glass face whose
- * band round the print glows in the box's own light (one or two dusk colours,
- * varied along the wall), a halo on the wall, a pool on the stone floor, and
- * a small glass label under it with the name and industry polished into it.
- * The camera walks the wall; each box dims up as you arrive and down as you
- * leave (nothing bright slides across the frame at full light). At the end of
- * the wall, a long frosted wall-text panel with the nine other sites polished
- * into it — each name a link, the one you're on burning brighter.
+ * of the six featured projects is a museum light box in glass: a thick
+ * frosted slab held off the wall on four polished standoffs, a window cut
+ * clean through it, the screenshot on a black mount board behind the window,
+ * and two tubes of the box's own light behind the glass (one or two dusk
+ * colours, varied along the wall) — soft bars through the frost, crisp lines
+ * along the polished bevels, which catch the studio strips as you walk. A
+ * faint spill on the wall, a pool on the stone floor, and a small glass label
+ * under it with the name and industry polished into it. The camera walks the
+ * wall; each box dims up as you arrive and down as you leave (nothing bright
+ * slides across the frame at full light; a box you've passed goes all but
+ * dark, so nothing reads through the card over it). At the end of the wall, a
+ * long frosted wall-text panel with the nine other sites polished into it
+ * (decoration: the card lists the nine as real links, the one you're on
+ * marked; its etched line lifts a touch).
  *
  * PACING (WCAG 2.3.1): the camera, the lit box and the card follow a
  * StoryClock, not the raw scroll. The clock runs on a warped copy of `local`
@@ -54,18 +59,20 @@ const BOARD_Y = 1.95
 // ---- the story schedule, written in viewport heights of scroll so every beat
 // keeps its reading distance: LEN must match this chapter's `length` in
 // src/chapters/index.ts.
-const LEN = 4.0
+// Reading pace (250 px/s of wheel ≈ 0.28 vh/s): the headline holds ≥ 1.5 s,
+// each card is fully up ≥ 2 s, the nine names ~2.5 s.
+const LEN = 6.1
 const V = (vh: number) => vh / LEN
 /** the headline comes into focus as the cut clears… */
-const RISE = V(0.1)
-/** …and holds, settled, until here (0.4 vh of reading) */
-const INTRO_OUT = V(0.5)
+const RISE = V(0.06)
+/** …and holds, settled, until here (~0.5 vh of reading once the words have risen) */
+const INTRO_OUT = V(0.74)
 /** box 1 settled */
-const A = V(0.66)
+const A = V(0.94)
 /** half a walk between two boxes */
-const T = V(0.09)
-/** the walk from the last box to the board is centred here */
-const E = V(3.37)
+const T = V(0.1)
+/** the walk from the last box to the board is centred here (a box's hold + walk: 0.7 vh) */
+const E = V(5.14)
 /** one box: its hold + one walk */
 const SPAN = (E - A) / N
 /** travel k runs from station k to k+1; stations: 0 intro, 1..N boxes, N+1 the board */
@@ -75,7 +82,7 @@ TRAVEL.push([E - T, E + T])
 const BOARD = N + 1
 /** the board's nine names: one keyboard stop (and brighter bar) each */
 const SLOT0 = E + T + V(0.02)
-const SLOT = V(0.036)
+const SLOT = V(0.07)
 const OUTRO = SLOT0 + SLOT * REST.length + V(0.02)
 /** each box's settled hold (anchors land mid-hold) */
 const holdMid = (i: number) => ((i === 0 ? A : TRAVEL[i][1]) + TRAVEL[i + 1][0]) / 2
@@ -124,16 +131,17 @@ function where(local: number) {
   return { k: BOARD, t: 0, h: clamp((local - hs) / (OUTRO - hs)) }
 }
 /**
- * 0..1 visibility of station k's copy: full while the camera holds on it,
- * out early in the walk away (the eased camera has barely moved), in late in
- * the walk toward it (the camera has all but arrived)
+ * 0..1 visibility of station k's copy: full while the camera holds on it —
+ * in by the time the eased camera reads as arrived (≈ 90% of the walk: t
+ * 0.72), out only once it visibly leaves (t 0.18 → 0.4: 2% → 25% of the
+ * walk), never ghosted over a box at rest; the copy swaps mid-walk, unseen
  */
 function holdVis(local: number, k: number) {
   const inT = TRAVEL[k - 1]
   const outT = TRAVEL[k] as [number, number] | undefined
   const tin = clamp((local - inT[0]) / (inT[1] - inT[0]))
   const tout = outT ? clamp((local - outT[0]) / (outT[1] - outT[0])) : clamp((local - OUTRO) / V(0.1))
-  return smoothstep(0.72, 0.94, tin) * (1 - smoothstep(0.06, 0.28, tout))
+  return smoothstep(0.55, 0.72, tin) * (1 - smoothstep(0.18, 0.4, tout))
 }
 
 type Pose = { p: THREE.Vector3; t: THREE.Vector3 }
@@ -177,6 +185,11 @@ export default function create(): Chapter {
   const dims: Dimmer[] = []
   let wallText: Board | null = null
   const boardDim = new Dimmer(0.7, 0.45)
+  /** 0..1 per box: the camera has walked past it (time-damped: its print sinks to PRINT_BEHIND) */
+  const behind = new Array<number>(N).fill(0)
+  let S: ReturnType<typeof sharedMaterials> | null = null
+  /** the studio's turn on the glass's own envMaps (damped like the world's) */
+  let turn = NaN
   /** 0..1 how lit each board name is (time-damped); hover adds */
   const hl = REST.map(() => 0)
   let hover = -1
@@ -188,7 +201,6 @@ export default function create(): Chapter {
   const listItems: HTMLElement[] = []
   let shown = -1
   let restOn = -1
-  let listMode = false
   let settling = false
   let snap = true
   const clock = new StoryClock({ rate: RATE, snap: 1.5 })
@@ -299,7 +311,7 @@ export default function create(): Chapter {
     // each its own slot on the board (its name burns brighter)
     anchors: [...FEATURED.map((_, i) => holdMid(i)), ...REST.map((_, j) => SLOT0 + (j + 0.5) * SLOT)],
     async init(ctx) {
-      const S = sharedMaterials(rt => ctx.post.isFrameTarget(rt), ctx.world.envMap, ctx.mobile)
+      S = sharedMaterials(rt => ctx.post.isFrameTarget(rt), ctx.world.envMap, ctx.mobile)
       group.add(wall(-26, BOARD_X + 40, ctx.world.envMap))
       const floor = stoneFloor(BOARD_X + 70, 22, ctx.world.envMap)
       floor.position.set(BOARD_X / 2, 0, 11)
@@ -336,9 +348,10 @@ export default function create(): Chapter {
       visit.rel = 'noopener'
       rest = el('div', 'wk-card wk-rest hud-panel', undefined, ctx.stage)
       el('h3', 'wk-name wk-rest-title', 'Nine more, all live.', rest)
-      // the names as a DOM list: shown only where the etched board is too small to read (short landscape)
+      // the names as real text (links) on every screen: they hold contrast and
+      // grow with zoom; the etched board on the wall is decoration
       const list = el('ul', 'wk-list', undefined, rest)
-      for (const w of REST) {
+      REST.forEach((w, j) => {
         const li = el('li', '', undefined, list)
         listItems.push(li)
         const a = el('a', '', w.name, li)
@@ -346,11 +359,14 @@ export default function create(): Chapter {
         a.href = w.url
         a.target = '_blank'
         a.rel = 'noopener'
-      }
+        // pointing at a name lifts its line on the wall
+        a.addEventListener('pointerenter', () => (hover = j))
+        a.addEventListener('pointerleave', () => hover === j && (hover = -1))
+      })
       const hello = el('button', 'hud-btn wk-hello', 'Say hello', rest)
       hello.type = 'button'
       hello.addEventListener('click', () => window.__hark?.land('contact'))
-      // links laid over the etched names (positioned each frame from the board)
+      // pointer targets laid over the etched names too (positioned each frame from the board)
       hitsBox = el('div', 'wk-hits', undefined, ctx.stage)
       REST.forEach((w, j) => {
         const a = el('a', 'wk-hit', w.name, hitsBox)
@@ -359,8 +375,6 @@ export default function create(): Chapter {
         a.rel = 'noopener'
         a.addEventListener('pointerenter', () => (hover = j))
         a.addEventListener('pointerleave', () => hover === j && (hover = -1))
-        a.addEventListener('focus', () => (hover = j))
-        a.addEventListener('blur', () => hover === j && (hover = -1))
         hits.push(a)
       })
       if (typeof ResizeObserver !== 'undefined') {
@@ -375,21 +389,24 @@ export default function create(): Chapter {
       }
 
       // first screenshot right away, the rest after the reveal (decoded off the main thread)
+      // phones: the print is ~410 device px wide — 640 is plenty (1024 cost ~20 MB of GPU texture)
+      const shotW = ctx.mobile ? 640 : 1024
       const load = (i: number) =>
-        loadScreenshot(workImage(FEATURED[i].id), { width: 1024 })
+        loadScreenshot(workImage(FEATURED[i].id), { width: shotW })
           .then(t => boxes[i].setPrint(t))
           .catch(() => {})
       load(0)
       whenRevealed().then(async () => {
         for (let i = 1; i < N; i++) await load(i)
       })
-      // the etched lettering once the faces are in (bound blank-ish now: no recompile later)
+      // the etched lettering once the faces are in (bound blank-ish now: no recompile
+      // later); then each canvas is freed once it's on the GPU
       etchFonts().then(async () => {
         for (const b of boxes) {
-          b.drawLabel()
+          b.drawLabel(true)
           await nextFrame()
         }
-        wallText?.draw()
+        wallText?.draw(true)
       })
     },
     busy: () => settling || clock.busy,
@@ -409,6 +426,8 @@ export default function create(): Chapter {
       const track = w.k + ease.inOutCubic(w.t) // 0 intro, 1..N boxes, N+1 board
       settling = false
       const drive = catching ? 0.6 : 1
+      const wasSnap = snap
+      const kB = snap ? 1 : 1 - Math.exp(-dt / 0.25)
 
       for (let i = 0; i < N; i++) {
         const k = i + 1
@@ -423,7 +442,12 @@ export default function create(): Chapter {
         if (snap) d.set(on ? 1 : 0)
         const v = d.update(on ? drive : 0, dt)
         if (d.busy) settling = true
-        boxes[i].setLevel(v)
+        // once the camera is well on its way past a box, its print sinks almost
+        // to black: it's the box the card sits over (landscape) — nothing reads through
+        const bt = track - 1 > i + 0.35 ? 1 : 0
+        behind[i] += (bt - behind[i]) * kB
+        if (Math.abs(bt - behind[i]) > 0.002) settling = true
+        boxes[i].setLevel(v, lerp(PRINT_DIM, PRINT_BEHIND, behind[i]))
       }
       const boardOn = q >= lerp(TRAVEL[N][0], TRAVEL[N][1], 0.6)
       if (snap) boardDim.set(boardOn ? 1 : 0)
@@ -437,34 +461,46 @@ export default function create(): Chapter {
       wallText?.setFar(N - cur > 1.6)
       if (wallText) {
         wallText.setLevel(0.14 + 0.86 * bl)
-        // the name you're on (keyboard stop / scroll slot) burns brighter; not while catching up
+        // the name you're on (keyboard stop / scroll slot) is marked in the card's
+        // list; its etched line lifts a touch (under the bloom threshold: a lift,
+        // never a halo); not while catching up
         const inSlot = w.k === BOARD && !catching && q >= SLOT0 && q < SLOT0 + SLOT * REST.length
-        const on = hover >= 0 ? hover : inSlot ? Math.min(REST.length - 1, Math.floor((q - SLOT0) / SLOT)) : -1
+        const slot = inSlot ? Math.min(REST.length - 1, Math.floor((q - SLOT0) / SLOT)) : -1
+        const lift = hover >= 0 ? hover : slot
         const kHl = 1 - Math.exp(-dt / 0.12)
         for (let j = 0; j < REST.length; j++) {
-          const tgt = j === on ? 1 : 0
+          const tgt = j === lift ? 1 : 0
           const h = (hl[j] += (tgt - hl[j]) * kHl)
           if (Math.abs(tgt - h) > 0.002) settling = true
-          // (list mode: the names are in the panel; the etched ones step back into the frost)
-          wallText.setRow(j, (listMode ? 0.12 : 0.7) + 0.3 * h)
+          wallText.setRow(j, 0.62 + 0.14 * h)
         }
-        if (on !== restOn) {
-          restOn = on
-          hits.forEach((a, j) => a.classList.toggle('is-on', j === on))
-          listItems.forEach((li, j) => li.classList.toggle('is-on', j === on))
+        if (slot !== restOn) {
+          restOn = slot
+          listItems.forEach((li, j) => li.classList.toggle('is-on', j === slot))
         }
       }
 
-      // the room: black, the studio strips sweep the bevels as you walk
+      // the room: black, the studio strips sweep the bevels as you walk (the
+      // glass and steel carry their own envMap, so they're turned here too)
       const p = ctx.world.params
       const ci = clamp(Math.round(track - 1), 0, N - 1)
       const L = w.k === BOARD || track > N + 0.5 ? BOARD_LIGHT : LIGHTS[ci]
       p.fieldA = hex(L.a)
       p.fieldB = hex(L.b)
-      p.field = 0.12
+      // a breath of the box's light in the room (a big glow round a box reads as a
+      // TV's ambient light); a little more at the chapter's ends for the colour-field cut
+      p.field = 0.05 + 0.07 * (1 - smoothstep(0.03, 0.08, Math.min(local, 1 - local)))
       p.slits = 0
       p.env = 0.85
       p.envTurn = 0.45 + track * 0.32
+      const tt = p.envTurn
+      if (wasSnap || !Number.isFinite(turn)) turn = tt
+      else {
+        let dd = tt - turn
+        dd = Math.atan2(Math.sin(dd), Math.cos(dd))
+        turn += dd * (1 - Math.exp(-4 * dt))
+      }
+      if (S) for (const m of S.envMats) m.envMapRotation.y = turn
       p.key = 0.45
       p.fill = 0.05
       const post = ctx.post.params
@@ -493,18 +529,11 @@ export default function create(): Chapter {
         card.style.setProperty('--wk-b', hex(LIGHTS[shown].b))
       }
 
-      // the etched names too small to read here (short landscape): list them in the panel
-      // (cap height in px: 8 px caps ≈ an 11 px font)
-      const px = poses.boardPx * 0.122
-      const lm = px < 9
-      wallText?.setBold(px < 12.5)
-      if (lm !== listMode) {
-        listMode = lm
-        rest.classList.toggle('is-list', lm)
-      }
-      // links over the etched names (last frame's camera: a frame of lag is invisible at rest)
-      reveal(hitsBox, listMode ? 0 : rv, 0)
-      if (!listMode && rv > 0.01 && wallText) {
+      // small on screen: a heavier etch (thin strokes survive); cap height in px
+      wallText?.setBold(poses.boardPx * 0.122 < 12.5)
+      // pointer targets over the etched names (last frame's camera: a frame of lag is invisible at rest)
+      reveal(hitsBox, rv, 0)
+      if (rv > 0.01 && wallText) {
         const cam = ctx.camera
         const Wd = frame.width
         const Hd = frame.height

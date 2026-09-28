@@ -10,26 +10,30 @@ import './voices.css'
 
 /*
  * VOICES · "Afterglow" — a James Turrell room. A black gallery, one knife-edged
- * rectangular APERTURE in the far wall: a field of even, coloured light whose
+ * rectangular APERTURE in the far wall: a field of even, colored light whose
  * depth you can't judge (room.ts). A low bench of black stone for scale, the
  * polished floor holding a soft reflection of the field. Quiet.
  *
  * The eight testimonials are gallery wall text beside the aperture (DOM:
  * .hud-quote in Cormorant, "— Name, Company", an NN / 08 index). For each
- * voice the field slowly shifts to a new pair of dusk colours — the sky after
+ * voice the field slowly shifts to a new pair of dusk colors — the sky after
  * sunset, from afterglow (blush, amber) through rose and violet to blue hour
  * (periwinkle, ice) — and the viewing angle and the opening's proportion
  * change by a hair.
  *
- *   0.00–0.14  intro: the room, the aperture glowing; eyebrow + "We listen.
- *              They talk." held ~0.35 vh clear of the cut; a slow push in
- *              (landing 0.1, intro 0.08)
- *   0.14–0.95  eight voices, one at a time (anchors = slot centres)
- *   0.95–1.00  out: a slow push toward the field for the colour-field cut
+ *   0.00–0.113 intro: the room, the aperture glowing; eyebrow + "We listen.
+ *              They talk." held ~0.4 vh clear of the cut; a slow push in
+ *              (landing 0.075, intro 0.07)
+ *   0.113–0.964 eight voices, one at a time (anchors = slot centers); each
+ *              voice gets ~0.58 vh (~2.5 s at a comfortable wheel), and the
+ *              quote swaps in ~0.5 s (a quick fade out, then in), so it reads
+ *              fully for ≥ 2 s. Its NN / 08 index lives in the same figure,
+ *              so the number changes with its quote, never before it.
+ *   0.964–1.00 out: a slow push toward the field for the color-field cut
  *
- * PACING (WCAG 2.3.1): the voice, the field colours and the camera all follow
+ * PACING (WCAG 2.3.1): the voice, the field colors and the camera all follow
  * a StoryClock in slot units (≤ 1.1 voice changes a second; the intro counts
- * as 0.7 of a slot so the clock doesn't linger on it), and on top of it the colours
+ * as 0.7 of a slot so the clock doesn't linger on it), and on top of it the colors
  * cross-fade by TIME (≥ 1.5 s, luminance-balanced: a hue change, never a
  * brightness step) and the camera's angle / the opening's proportion glide
  * on critically damped springs (~1.5 s). Everything snaps on teleports (nav,
@@ -37,8 +41,9 @@ import './voices.css'
  */
 
 const N = TESTIMONIALS.length
-const A0 = 0.14
-const A1 = 0.95
+/** in vh at the chapter's 5.5 vh: intro 0.62, out 0.2, each voice ~0.585 */
+const A0 = 0.113
+const A1 = 0.964
 const SPAN = (A1 - A0) / N
 /** a slot boundary must be passed by this much (slot units) before the voice changes */
 const HYST = 0.06
@@ -70,14 +75,14 @@ const FIELDS: [DuskColor, DuskColor][] = [
 const YAW = [-0.2, -0.13, -0.08, -0.16, -0.1, -0.18, -0.07, -0.14, -0.11]
 const ASPECT = [1.56, 1.5, 1.38, 1.6, 1.44, 1.34, 1.58, 1.42, 1.52]
 const AREA = ROOM.apW * ROOM.apH
-/** the field's luminance (linear) and how strongly colours are pulled toward it (1 = exactly equal) */
+/** the field's luminance (linear) and how strongly colors are pulled toward it (1 = exactly equal) */
 const FIELD_L = 0.44
 const BALANCE = 0.72
-/** colour cross-fade (s) */
+/** color cross-fade (s) */
 const FADE = 1.6
 
 const lum = (c: THREE.Color) => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b
-/** a touch of grey in every gel: a calm field, not a sign */
+/** a touch of gray in every gel: a calm field, not a sign */
 const MUTE = 0.1
 function balanced(name: DuskColor) {
   const c = new THREE.Color(DUSK[name])
@@ -87,7 +92,7 @@ function balanced(name: DuskColor) {
 }
 const PALETTE = FIELDS.map(([a, b]) => [balanced(a), balanced(b)] as const)
 
-/** time-based cross-fade of the field's two colours */
+/** time-based cross-fade of the field's two colors */
 class FieldFade {
   top = new THREE.Color()
   bot = new THREE.Color()
@@ -154,7 +159,7 @@ interface Layout {
   W: number
   H: number
   mode: Mode
-  /** the opening's centre on screen (px) and its width there (px) at the quote framing */
+  /** the opening's center on screen (px) and its width there (px) at the quote framing */
   cx: number
   cy: number
   apW: number
@@ -183,7 +188,6 @@ export default function create(): Chapter {
   let intro: HTMLElement
   let introTitle: HTMLElement
   let wall: HTMLElement
-  let idxN: HTMLElement
   const figs: HTMLElement[] = []
   let shown = -99
 
@@ -242,7 +246,7 @@ export default function create(): Chapter {
   }
 
   /**
-   * The camera that puts the opening's centre at (lay.cx, lay.cy) with the
+   * The camera that puts the opening's center at (lay.cx, lay.cy) with the
    * rest-width lay.apW (px), pulled back by `dScale`, then swung round the
    * opening by `yawA` (the opening stays put on screen). The eye stays at a
    * standing height (lay.eye) and pitches a few degrees to place the opening
@@ -276,13 +280,14 @@ export default function create(): Chapter {
     el('p', 'hud-eyebrow vo-eyebrow', SECTIONS.voices.eyebrow, intro)
     introTitle = rise(el('h2', 'hud-h2 vo-title', undefined, intro), 'We listen. They <em>talk.</em>')
     wall = el('div', 'vo-wall', undefined, copy)
-    const idx = el('p', 'hud-label vo-idx', undefined, wall)
-    idxN = el('span', 'vo-n', '01', idx)
-    idx.append(` / ${String(N).padStart(2, '0')}`)
     const stack = el('div', 'vo-stack', undefined, wall)
-    TESTIMONIALS.forEach(t => {
+    TESTIMONIALS.forEach((t, i) => {
       const f = el('figure', 'vo-fig', undefined, stack)
       if (t.quote.length > 170) f.classList.add('vo-fig--long')
+      // the NN / 08 index travels with its quote: it changes when the quote does
+      const idx = el('p', 'hud-label vo-idx', undefined, f)
+      el('span', 'vo-n', String(i + 1).padStart(2, '0'), idx)
+      idx.append(` / ${String(N).padStart(2, '0')}`)
       el('blockquote', 'hud-quote vo-q', `“${t.quote}”`, f)
       el('figcaption', 'hud-label vo-who', `— ${t.name}, ${t.company}`, f)
       figs.push(f)
@@ -300,7 +305,6 @@ export default function create(): Chapter {
     intro.classList.toggle('is-on', next === 0)
     wall.classList.toggle('is-on', next >= 1)
     figs.forEach((f, i) => f.classList.toggle('is-on', i === next - 1))
-    if (next >= 1) idxN.textContent = String(next).padStart(2, '0')
   }
 
   /* ---------------------------------------------------------------- chapter */
@@ -356,7 +360,7 @@ export default function create(): Chapter {
       const a = aspect.update(aspT, dt, snap)
       const hw = Math.sqrt(AREA * a) / 2
       const hh = Math.sqrt(AREA / a) / 2
-      // the opening keeps its sill height; it grows / shrinks about its centre line
+      // the opening keeps its sill height; it grows / shrinks about its center line
       room.setAperture(ROOM.apX, ROOM.apY, hw, hh)
       const y = yaw.update(yawT, dt, snap)
 

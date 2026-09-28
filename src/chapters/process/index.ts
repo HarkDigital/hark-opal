@@ -6,7 +6,7 @@ import { clamp, ease, lerp, segment, smoothstep, window01 } from '../../core/mat
 import { nextFrame } from '../../core/yield'
 import { beat } from '../common'
 import { StoryClock } from '../../kit/pace'
-import { Dimmer, DUSK, stoneFloor } from '../../kit/opal'
+import { Dimmer, DUSK, releaseAfterUpload, stoneFloor } from '../../kit/opal'
 import {
   designCanvas,
   etchedFrost,
@@ -15,6 +15,7 @@ import {
   floorSpill,
   lightSlab,
   etchLight,
+  fadeFloor,
   glintBevel,
   sketchCanvas,
   slabGeometry,
@@ -37,33 +38,34 @@ import './process.css'
  *   0.00–0.16  the row from the left, the headline (SECTIONS.process) comes
  *              into focus at 0.045 and HOLDS through step 01 (out 0.285–0.30),
  *              so the landing (0.2) shows it with sheet one and card 01
- *   0.16–0.315 01 Listen     — a clear sheet of frost; construction lines,
- *              then the mark's contour, polish themselves in line by line (an
- *              etch whose draw order follows the step), a faint warm light
- *   0.315–0.47 02 Prototype  — the design complete, etched; one test tube
- *              behind it, lit dimly: the model you react to
- *   0.47–0.625 03 Build      — the full tube bank installed, dimming up
- *              (Dimmer), its warm white settling into rose → lilac
- *   0.625–0.78 04 Support    — the finished piece glowing; a slow hairline of
- *              light sweeps across its polished bevel (world envTurn)
+ *   0.16–0.315 01 Listen     — a sheet of frost in first (periwinkle) light;
+ *              construction lines, then the mark's contour, polish themselves
+ *              in line by line in ice-white light (the draw follows the step)
+ *   0.315–0.47 02 Prototype  — the design complete, etched, and lit as one
+ *              simple shape of violet → lilac light: the model you react to
+ *   0.47–0.625 03 Build      — the tube bank installed behind it dims up
+ *              (Dimmer), cool white settling into lilac → rose; the polished
+ *              mark shows the tubes crisp
+ *   0.625–0.78 04 Support    — the finished piece, its diffuser full (rose →
+ *              lilac); a slow hairline of light runs round its polished bevel
  *   0.80–0.96  the stats: 10 years · $1M+ · 15 in thin numerals polished into
  *              one long glass bar lit from behind (lilac → periwinkle), each
  *              label under its figure; phones stack three short bars
- *   0.96–1.00  the bar stays lit for the colour-field cut
+ *   0.96–1.00  the bar stays lit for the color-field cut
+ *
+ * The row is a dusk gradient (periwinkle → violet → lilac → rose), one or two
+ * neighbors per shot. Low light is always a saturated dusk hue (dim white
+ * through frost reads as taupe). The establishing shot shows the whole row
+ * lit; once the walk starts, only the sheet in front of you is at full light
+ * and the others rest at DIM (no bright, cropped neighbor under the card).
  *
  * Camera, active sheet, DOM cards and the stats all follow a StoryClock
  * (kit/pace.ts): at most ~1 sheet per second however fast the scroll, and
  * every move between sheets takes ≥ ~0.45 s (WCAG 2.3.1). Lights change
- * only through Dimmers. No RectAreaLights: the cards + tubes are the light.
+ * only through Dimmers or the clock. No RectAreaLights: cards + tubes are the light.
  */
 
 const SHOW = [STATS[0], STATS[2], STATS[1]] // 10 years, $1M+, 15
-const TAGS = [
-  'Frosted glass · a first line, polished clear',
-  'The design etched · one test tube behind',
-  'The tube bank installed · colour settling',
-  'Finished · a hairline of light along the bevel',
-]
 const A0 = 0.16
 const A1 = 0.78
 const SLOT = (A1 - A0) / PROCESS.length
@@ -99,7 +101,7 @@ const FIG_BASE = 0.16
 const FIG_HDR = 1.05
 /** the stack of three short bars (portrait) */
 const SB = { w: 2.0, h: 0.64, gap: 0.8 }
-const STACK_TOP = 3.9 // centre y of the top short bar
+const STACK_TOP = 3.9 // center y of the top short bar
 const stackY = (k: number) => STACK_TOP - k * (SB.h + SB.gap)
 const STACK_H = 3 * SB.h + 3 * SB.gap
 const STACK_CY = STACK_TOP + SB.h / 2 - STACK_H / 2
@@ -109,13 +111,21 @@ const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z)
 const GLINT = new THREE.Color('#f1e8ff').multiplyScalar(1.15)
 const col = (h: string) => new THREE.Color(h)
 const C = {
-  warm: col(DUSK.warm),
-  blush: col(DUSK.blush),
   rose: col(DUSK.rose),
   lilac: col(DUSK.lilac),
   violet: col(DUSK.violet),
   peri: col(DUSK.periwinkle),
 }
+/** the tube bank's raw light as it dims up, before it settles into lilac → rose (a cool white: never taupe) */
+const RAW = col('#efe8ff')
+/** the frost's share of the studio reflection (the bevels carry the studio) */
+const CAP_ENV = 0.12
+/** a sheet you are not standing at rests at this share of its light */
+const DIM = 0.3
+/** sheet one: first light (the sketch in ice-white over a faint periwinkle field) */
+const S1 = { a: DUSK.periwinkle, b: DUSK.lilac, line: '#eef1ff', base: 0.3 }
+/** sheet two: the design as one lit shape, violet → lilac */
+const S2 = { a: DUSK.violet, b: DUSK.lilac, line: '#e6dcff', base: 0.26 }
 
 // ---------------------------------------------------------------- camera keys
 type Mode = 'head' | 'card' | 'stats'
@@ -214,11 +224,11 @@ export default function create(): Chapter {
   const spills: ReturnType<typeof floorSpill>[] = []
   let sketchU: ReturnType<typeof etchedFrost>['u']
   let sketchL: ReturnType<typeof etchLight>
+  let protoL: ReturnType<typeof etchLight>
   let glint: ReturnType<typeof glintBevel>
   let barSpill: ReturnType<typeof floorSpill>
   let wide: THREE.Group
   let stack: THREE.Group
-  const tubeDim = new Dimmer(0.9, 0.5)
   const bankDim = new Dimmer(1.2, 0.7)
   let bankOn = false
   let portraitScene: boolean | null = null
@@ -313,7 +323,7 @@ export default function create(): Chapter {
         x0 = W * 0.3
         y0 = b.top + (H - b.top - b.bot) * 0.12
       } else {
-        // the bar, then its label row, the pair centred between the bands
+        // the bar, then its label row, the pair centered between the bands
         const s = statScale(W, H, regions.labelH)
         const block = out.h * s + 26 + regions.labelH
         y0 = b.top + Math.max(0, (H - b.top - b.bot - block) / 2)
@@ -420,7 +430,7 @@ export default function create(): Chapter {
     group,
     // the four steps, then the stats beat (srContent makes the first stat a keyboard stop)
     anchors: [...B.centers, 0.88],
-    busy: () => clock.busy || tubeDim.busy || bankDim.busy,
+    busy: () => clock.busy || bankDim.busy,
     onEnter() {
       clock.reset()
     },
@@ -430,20 +440,26 @@ export default function create(): Chapter {
       const env = ctx.world.envMap
 
       // ---------------- floor
-      // big enough that its far edge never shows as a horizon
-      const floor = stoneFloor(240, 160, env)
-      floor.position.set(8, 0, -50)
+      // polished black stone under the row and the bar, dissolving into the
+      // dark behind and beyond them (no hard horizon across the headline)
+      const floor = stoneFloor(56, 34, env)
+      floor.position.set(8, 0, 3)
+      fadeFloor(floor, { x0: -3, x1: BAR.x + 3.5, z0: -1.2, z1: 9, softX: 9, softZ: 6.5 })
       group.add(floor)
 
       // ---------------- the four sheets (one slab geometry, two etch materials)
       const geo = slabGeometry(PW, PH, DEPTH, 0.04, mobile)
       const whole: Cell[] = [{ cx: 0, cy: 0, w: PW, h: PH, atlas: [0, 0, 1, 1] }]
+      // both etches are static: free their canvases once they're on the GPU (perf-05)
       const sketchTex = etchTexture(sketchCanvas(PW, PH, res, DESIGN, { guide: 0.006, line: 0.012 }))
-      const sketch = etchedFrost(sketchTex, whole, { frost: 0.58 })
+      const designTex = etchTexture(designCanvas(PW, PH, res, DESIGN))
+      releaseAfterUpload(sketchTex)
+      releaseAfterUpload(designTex)
+      const sketch = etchedFrost(sketchTex, whole, { frost: 0.58, env, envK: CAP_ENV })
       sketchU = sketch.u
       sketchU.uEtchDraw.value = 0
-      const design = etchedFrost(etchTexture(designCanvas(PW, PH, res, DESIGN)), whole, { frost: 0.58 })
-      glint = glintBevel(PW, PH)
+      const design = etchedFrost(designTex, whole, { frost: 0.58, env, envK: CAP_ENV })
+      glint = glintBevel(PW, PH, env)
       await nextFrame()
       const shoeMat = new THREE.MeshStandardMaterial({ color: 0x0b0a0e, roughness: 0.34, metalness: 0.6, envMap: env, envMapIntensity: 0.55 })
       const shoeGeo = new THREE.BoxGeometry(PW * 0.96, LIFT + 0.03, 0.5)
@@ -457,23 +473,36 @@ export default function create(): Chapter {
           geometry: geo,
           caps: i === 0 ? sketch.material : design.material,
           sides: i === 3 ? glint.material : undefined,
-          a: i < 2 ? DUSK.warm : DUSK.rose,
-          b: i < 2 ? DUSK.blush : DUSK.lilac,
+          a: i === 2 ? DUSK.lilac : DUSK.rose,
+          b: i === 2 ? DUSK.rose : DUSK.lilac,
           angle: 1.25,
-          hdr: i === 1 ? 0.26 : 0.5,
-          tubes: i === 0 ? undefined : i === 1 ? { n: 1, dir: 'v', color: DUSK.warm, hdr: 1.7 } : { n: BANK.length, dir: 'v', at: BANK.map(k => k * PW * 0.8), hdr: 2.2 },
+          hdr: 0.5,
+          // the bank: installed in 03 and 04 (01/02 are lit by their own design, drawn in light)
+          tubes: i < 2 ? undefined : { n: BANK.length, dir: 'v', at: BANK.map(k => k * PW * 0.8), hdr: 2.2 },
           envMap: env,
         })
         s.group.position.set(PX[i], PY, 0)
         group.add(s.group)
         sheets.push(s)
-        if (i === 0) {
-          // sheet one is lit by its own sketch, drawn in light just behind the glass
+        if (i < 2) {
+          // sheets one and two are lit by their own design, drawn in light just
+          // behind the glass: the frost glows faintly, the polished lines/shape crisp
           s.card.visible = false
-          sketchL = etchLight(PW * 0.94, PH * 0.94, sketchTex, whole, { a: DUSK.warm, b: DUSK.blush, line: DUSK.warm, base: 0.2, hdr: mobile ? 1.45 : 1.25, soft: 0.22 })
-          sketchL.u.uDraw.value = 0
-          sketchL.mesh.position.z = -DEPTH / 2 - 0.016
-          s.group.add(sketchL.mesh)
+          const o = i === 0 ? S1 : S2
+          const l = etchLight(PW * 0.94, PH * 0.94, i === 0 ? sketchTex : designTex, whole, {
+            a: o.a,
+            b: o.b,
+            line: o.line,
+            base: o.base,
+            hdr: i === 0 ? (mobile ? 1.45 : 1.3) : 1.05,
+            soft: 0.22,
+          })
+          l.mesh.position.z = -DEPTH / 2 - 0.016
+          s.group.add(l.mesh)
+          if (i === 0) {
+            sketchL = l
+            sketchL.u.uDraw.value = 0
+          } else protoL = l
         }
         const shoe = new THREE.Mesh(shoeGeo, shoeMat)
         shoe.position.set(PX[i], (LIFT + 0.03) / 2, -0.19)
@@ -495,7 +524,7 @@ export default function create(): Chapter {
       const figC = statCanvas(res)
       const tex = etchTexture(figC)
       const cells: Cell[] = [0, 1, 2].map(k => ({ cx: (k - 1) * PITCH, cy: 0, w: CELL_W, h: CELL_H, atlas: statRow(k) }))
-      const barMat = etchedFrost(tex, cells, { frost: 0.6 })
+      const barMat = etchedFrost(tex, cells, { frost: 0.6, env, envK: CAP_ENV })
       const bar = lightSlab({
         w: BAR.w,
         h: BAR.h,
@@ -534,7 +563,7 @@ export default function create(): Chapter {
       stack = new THREE.Group()
       const sbGeo = slabGeometry(SB.w, SB.h, DEPTH, 0.04, mobile)
       for (let k = 0; k < 3; k++) {
-        const m = etchedFrost(tex, [{ cx: 0, cy: 0, w: CELL_W, h: CELL_H, atlas: statRow(k) }], { frost: 0.6 })
+        const m = etchedFrost(tex, [{ cx: 0, cy: 0, w: CELL_W, h: CELL_H, atlas: statRow(k) }], { frost: 0.6, env, envK: CAP_ENV })
         const s = lightSlab({
           w: SB.w,
           h: SB.h,
@@ -567,15 +596,18 @@ export default function create(): Chapter {
       stack.add(stackSpill.mesh)
       group.add(stack)
 
-      // redraw the figures once every face is in (a late font swap)
-      document.fonts?.ready.then(() => {
+      // redraw the figures once every face is in (a late font swap), then
+      // free the canvas once that version is on the GPU (perf-05)
+      const redrawn = document.fonts?.ready.then(() => {
         const c2 = statCanvas(res)
         const g = figC.getContext('2d')!
         g.clearRect(0, 0, figC.width, figC.height)
         g.drawImage(c2, 0, 0)
+        c2.width = c2.height = 1
         tex.needsUpdate = true
         regions.key = ''
       })
+      if (redrawn) void redrawn.then(() => releaseAfterUpload(tex))
 
       // ---------------- DOM
       head = el('div', 'pc-head', undefined, ctx.stage)
@@ -589,7 +621,6 @@ export default function create(): Chapter {
         el('span', 'pc-of', `/ ${String(PROCESS.length).padStart(2, '0')}`, num)
         el('h3', 'pc-title', p.title, c)
         el('p', 'hud-body pc-text', p.text, c)
-        el('p', 'pc-tag', TAGS[i], c)
         reveal(c, 0, 0)
         pages.push(c)
       })
@@ -622,45 +653,64 @@ export default function create(): Chapter {
       }
 
       // ---------------- the sheets
-      // 01: the sketch polishes itself in over step 01
-      const draw = ease.inOutQuad(segment(q, A0 - 0.02, B1 - 0.03))
+      // focus: the whole row is lit in the establishing shot; once the walk
+      // starts only the sheet in front of you is at full light, the others
+      // rest at DIM (the one you just left dims as the camera leaves it)
+      const est = 1 - smoothstep(0.1, 0.175, q)
+      const lit = (i: number) => {
+        const a = A0 + i * SLOT
+        const b = a + SLOT
+        const on = (i === 0 ? 1 : smoothstep(a - MV, a + MV * 0.6, q)) * (1 - smoothstep(b - MV * 0.6, b + MV, q))
+        return lerp(DIM, 1, Math.max(est, on))
+      }
+      const f0 = lit(0)
+      const f1 = lit(1)
+      const f2 = lit(2)
+      const f3 = lit(3)
+      // 01: the sketch polishes itself in, in ice-white light: the construction
+      // lines as you approach the row, the mark's contour over step 01
+      const draw = 0.3 * smoothstep(0.03, 0.12, q) + 0.7 * ease.inOutQuad(segment(q, A0 - 0.01, B1 - 0.03))
       sketchU.uEtchDraw.value = draw
       sketchL.u.uDraw.value = draw
-      spills[0].set(C.warm, C.blush, 0.05)
-      // 02: one test tube, lit dimly (a little brighter once we arrive)
-      const tl = tubeDim.update(q > B1 - 0.01 ? 0.62 : 0.32, dt)
-      sheets[1].tubes[0].setLevel(tl)
-      sheets[1].card.setLevel(1)
-      spills[1].set(C.warm, C.blush, 0.04 + 0.06 * tl)
-      // 03: the bank dims up as we arrive (hysteresis: never toggles on a jitter)
+      sketchL.u.uLevel.value = f0
+      spills[0].set(C.peri, C.lilac, 0.1 * f0)
+      // 02: the design, lit as one simple shape
+      protoL.u.uLevel.value = f1
+      spills[1].set(C.violet, C.lilac, 0.11 * f1)
+      // 03: the bank dims up as we arrive (hysteresis: never toggles on a jitter);
+      // its raw cool white settles into lilac → rose; the diffuser comes up to
+      // half of 04's, so the finished piece next door reads as the full glow
       if (!bankOn && q > B2 + 0.012) bankOn = true
       else if (bankOn && q < B2 - 0.012) bankOn = false
       const bl = bankDim.update(bankOn ? 1 : 0, dt)
-      // colour settles from the tubes' raw warm white into the dusk gradient
       const settle = smoothstep(B2 + 0.02, B2 + SLOT * 0.8, q)
       const s3 = sheets[2]
       s3.tubes.forEach((t, i) => {
         const k = i / (s3.tubes.length - 1)
-        tc.copy(C.rose).lerp(C.lilac, k)
-        tc2.copy(C.warm).lerp(tc, settle)
+        tc.copy(C.lilac).lerp(C.rose, k)
+        tc2.copy(RAW).lerp(tc, settle)
         t.setColor('#' + tc2.getHexString())
-        t.setLevel(bl)
+        t.setLevel(bl * f2)
       })
-      tc.copy(C.warm).lerp(C.rose, settle)
-      tc2.copy(C.blush).lerp(C.lilac, settle)
-      s3.card.setColors('#' + tc.getHexString(), '#' + tc2.getHexString())
-      s3.card.setLevel(0.22 + 0.78 * bl)
-      spills[2].set(tc, tc2, 0.03 + 0.15 * bl)
+      // the diffuser: a quiet lilac → violet while the bank is off (a dim rose
+      // reads maroon), lilac → rose once it's lit
+      tc.copy(C.violet).lerp(C.rose, bl)
+      s3.card.setColors(DUSK.lilac, '#' + tc.getHexString())
+      s3.card.setLevel((0.16 + 0.34 * bl) * f2)
+      spills[2].set(C.lilac, C.rose, (0.04 + 0.12 * bl) * f2)
       // 04: finished, always on
-      sheets[3].tubes.forEach(t => t.setLevel(1))
-      sheets[3].card.setLevel(1)
-      spills[3].set(C.rose, C.lilac, 0.18)
+      sheets[3].tubes.forEach(t => t.setLevel(f3))
+      sheets[3].card.setLevel(f3)
+      spills[3].set(C.rose, C.lilac, 0.18 * f3)
       // the stats
       barSpill.set(C.lilac, C.peri, 0.1)
-      // 04: a hairline of light travels once around the finished piece's bevel
+      // 04: a hairline of light travels once around the finished piece's bevel,
+      // and the studio's reflections turn slowly across it (its bevel has its
+      // own envMap, so it takes the turn itself, not from world envTurn)
       const p4 = segment(q, B3 + 0.015, A1 - 0.01)
       glint.u.uGlintAt.value = 0.77 + ease.inOutQuad(p4)
       glint.u.uGlint.value.copy(GLINT).multiplyScalar(Math.sin(Math.PI * clamp(p4 * 1.15 - 0.05)))
+      glint.material.envMapRotation.y = q > B3 - 0.03 && q < 0.8 ? lerp(-0.5, 0.5, ease.inOutQuad(p4)) : 0
 
       // ---------------- camera (written in camera())
       const { cx, cy } = computePose(q, frame)
@@ -670,9 +720,11 @@ export default function create(): Chapter {
       const aspect = frame.width / Math.max(1, frame.height)
       W.focus.set(cx * aspect, cy)
       W.fieldSize = 0.85
-      W.slits = 0.12
+      // the hairline slits read as wires hanging the sheets in the wide shot: none there
+      W.slits = 0.1 * smoothstep(0.12, 0.2, q)
       W.key = 0.5
       W.fill = 0.07
+      // the light wall behind follows the sheet in front of you (world params are damped)
       const inStats = q > 0.8
       const at = inStats ? 4 : clamp(Math.floor((q - A0) / SLOT), 0, 3)
       if (inStats) {
@@ -680,16 +732,14 @@ export default function create(): Chapter {
         W.fieldB = DUSK.periwinkle
         W.field = 0.4
       } else if (at >= 2) {
-        W.fieldA = DUSK.rose
-        W.fieldB = DUSK.lilac
+        W.fieldA = at === 2 ? DUSK.lilac : DUSK.rose
+        W.fieldB = at === 2 ? DUSK.rose : DUSK.lilac
         W.field = 0.35
       } else {
-        W.fieldA = DUSK.blush
+        W.fieldA = at === 0 ? DUSK.periwinkle : DUSK.violet
         W.fieldB = DUSK.lilac
-        W.field = 0.25
+        W.field = 0.3
       }
-      // 04: the studio's reflections turn slowly across the finished piece too
-      W.envTurn = q > B3 - 0.03 && q < 0.8 ? lerp(-0.5, 0.5, ease.inOutQuad(p4)) : 0
       ctx.post.params.bloomStrength = 0.55
 
       // ---------------- DOM

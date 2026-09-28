@@ -9,7 +9,7 @@ import { bindScene, calmUi, holdScene, readMotion, releaseScene, rememberMotion 
 
 /*
  * Persistent chrome — OPAL: the gallery's own wall text. Quiet and exact:
- * white type, hairlines, and colour only where something is ON — the room
+ * white type, hairlines, and color only where something is ON — the room
  * you're in lights a fine hairline with the accent gradient (rose → lilac →
  * periwinkle), a switch that's on lights its little glass tile. The Hark mark
  * is always white. Nothing sits on a blur (backdrop-filter over the canvas
@@ -32,6 +32,12 @@ import { bindScene, calmUi, holdScene, readMotion, releaseScene, rememberMotion 
  *                 prefers-reduced-motion.
  *   bottom-right  "03 / 07 — Spectrum · Services" + one hairline pip per
  *                 chapter (24x24 buttons, named), the room on screen lit.
+ *   The bottom band is one landmark (<aside> "Preferences and chapters"), so
+ *   landmark navigation reaches Sound / Motion. The readout is NOT a live
+ *   region (scrolling, a reader's cursor and each Tab into a chapter would
+ *   queue "04 / 07 …" on top of the heading just reached); a quiet sr-only
+ *   status names the room only after a pip / link was activated without
+ *   moving focus to its heading (a tap, a click).
  *
  * API used by main.ts: createChrome(root, engine, sound) → { update(frame, state) }.
  * Navigation always uses engine.land(id) (lands on settled copy; long jumps cut).
@@ -117,13 +123,14 @@ export function createChrome(root: HTMLElement, engine: Engine, sound: Sound) {
       <button class="ch-menu-btn" type="button" aria-expanded="false" aria-controls="ch-menu" aria-haspopup="dialog"><span>Menu</span>${MENU_IC}</button>
     </header>
 
-    <div class="ch-bottom">
+    <aside class="ch-bottom" aria-label="Preferences and chapters">
       <div class="ch-prefs" role="group" aria-label="Preferences">${tgl('sound')}${tgl('motion')}</div>
       <div class="ch-read">
-        <p class="ch-read-line" aria-live="polite"><span class="ch-read-n"><b>01</b> / ${pad(total)}</span><span class="ch-read-sep" aria-hidden="true"> — </span><span class="ch-read-l"></span><span class="ch-read-b"></span></p>
+        <p class="ch-read-line"><span class="ch-read-n"><b>01</b> / ${pad(total)}</span><span class="ch-read-sep" aria-hidden="true"> — </span><span class="ch-read-l"></span><span class="ch-read-b"></span></p>
         <nav class="ch-pips" aria-label="Chapters"><ol>${pips}</ol></nav>
+        <p class="sr-only" role="status" data-ch-status></p>
       </div>
-    </div>
+    </aside>
 
     <div class="ch-menu" id="ch-menu" role="dialog" aria-modal="true" aria-label="Menu" data-lenis-prevent hidden>
       <div class="ch-menu-glow" aria-hidden="true"></div>
@@ -158,6 +165,13 @@ export function createChrome(root: HTMLElement, engine: Engine, sound: Sound) {
   const readN = $('.ch-read-n b')
   const readL = $('.ch-read-l')
   const readB = $('.ch-read-b')
+  const status = $('[data-ch-status]')
+  /** the room to name once we arrive (set by a pointer activation only) */
+  let announceFor: string | null = null
+  const say = (i: number) => {
+    const d = slots[i]?.def
+    if (d) status.textContent = `${pad(i + 1)} of ${pad(total)}: ${d.label}, ${biz(d.id, d.label)}`
+  }
 
   // ---------------------------------------------------------------- navigation
 
@@ -174,9 +188,17 @@ export function createChrome(root: HTMLElement, engine: Engine, sound: Sound) {
     // so the next Tab continues in the story; a tap in the menu returns focus
     // to Menu, the control that opened it
     const keyboard = e.detail === 0
-    if (keyboard && indexOf(id) >= 0 && (fromMenu || a.matches('.ch-link, .ch-pip, .ch-brand') || a.hasAttribute('data-focus')))
-      engine.focusChapter(id)
+    const toHeading = keyboard && indexOf(id) >= 0 && (fromMenu || a.matches('.ch-link, .ch-pip, .ch-brand') || a.hasAttribute('data-focus'))
+    if (toHeading) engine.focusChapter(id)
     else if (fromMenu) menuBtn.focus({ preventScroll: true })
+    // focus stayed on the control: name the room once the story gets there
+    // (the heading announces itself when it takes focus)
+    status.textContent = ''
+    announceFor = null
+    if (!toHeading && indexOf(id) >= 0) {
+      if (indexOf(id) === lastIndex) window.setTimeout(() => say(lastIndex), 120)
+      else announceFor = id
+    }
   })
 
   // ---------------------------------------------------------------- sound
@@ -301,6 +323,10 @@ export function createChrome(root: HTMLElement, engine: Engine, sound: Sound) {
       if (!slot) return
       lastIndex = state.index
       const id = slot.def.id
+      if (announceFor === id) {
+        announceFor = null
+        say(state.index)
+      }
       readN.textContent = pad(state.index + 1)
       readL.textContent = slot.def.label
       readB.textContent = ` · ${biz(id, slot.def.label)}`

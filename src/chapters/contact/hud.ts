@@ -5,7 +5,8 @@ import { BRAND, CONTACT, OTHER_CONCEPTS } from '../../content'
  * The Foyer's copy: one opaque panel (no backdrop blur) in two parts —
  *   A  eyebrow, "Say hello.", body, the address as the big CTA, Copy email
  *   B  Other concepts, Back to top, the colophon
- * — and the closing sign-off (Back to top + colophon) set under the slab.
+ * — and the closing sign-off (the address, Back to top, colophon) set under
+ * the slab: the one thing the sign asks for stays on the last frame.
  *
  * Layout is MEASURED (resize / fonts / size changes, never per frame):
  *   side   landscape: the panel on the left, the slab in the space to its right
@@ -165,8 +166,12 @@ export function buildHud(stage: HTMLElement): Hud {
   backToTop(foot, 'contact-top')
   legal(foot, 'contact-legal')
 
-  // the closing frame's sign-off, under the slab
+  // the closing frame's sign-off, under the slab: the address, then Back to top
   const end = el('div', 'contact-end', undefined, root)
+  const endMail = el('a', 'contact-email contact-email--end', undefined, end)
+  endMail.href = CONTACT.href
+  el('span', 'contact-addr', BRAND.email, endMail)
+  el('span', 'contact-go', '→', endMail).setAttribute('aria-hidden', 'true')
   backToTop(end, 'hud-btn hud-btn--ghost contact-top contact-top--end')
   legal(end, 'contact-legal contact-legal--end')
 
@@ -174,7 +179,7 @@ export function buildHud(stage: HTMLElement): Hud {
 
   const on = () => (hud.hover = true)
   const off = () => (hud.hover = false)
-  for (const n of [mail, copyBtn]) {
+  for (const n of [mail, copyBtn, endMail]) {
     n.addEventListener('pointerenter', on)
     n.addEventListener('pointerleave', off)
     n.addEventListener('focus', on)
@@ -256,7 +261,7 @@ export function measureHud(hud: Hud, W: number, H: number): Layout {
   const dock = hud.dock.getBoundingClientRect()
   const px0 = dock.left + panel.offsetLeft
   const pw = panel.offsetWidth
-  // the panel is centred (side) or bottom-aligned (stack) in the dock: derive
+  // the panel is centered (side) or bottom-aligned (stack) in the dock: derive
   // the tallest part's box from the dock rather than the current part's
   const py1 = stack ? dock.bottom : dock.top + (dock.height + ph) / 2
   const py0 = py1 - ph

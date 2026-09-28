@@ -1,17 +1,20 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
-import { DUSK, etchMap, stoneFloor } from '../../kit/opal'
+import { DUSK, etchMap, releaseAfterUpload, stoneFloor } from '../../kit/opal'
 import { frosted, pane } from '../../kit/glass'
 
 /*
  * THE FOYER SLAB — one long, low light box: a thick frosted glass front with
- * "Say hello." POLISHED clear into it, a bank of thin horizontal tubes and a
- * soft gradient card inside a satin-black housing, standing on black stone.
+ * "Say hello." POLISHED clear into it, a soft gradient card and a bank of
+ * thin horizontal tubes inside a satin-black housing, standing on black stone.
  *
- * Why horizontal tubes: the etch is an italic serif; horizontal lines cross
- * every stroke at nearly a right angle, so each letter shows the same crisp
- * rules of light (vertical tubes would run along some slanted strokes and
- * miss others). The frost blurs the same bank into an even glow around them.
+ * The words are drawn in LIGHT just behind the glass (the etch map's own
+ * letters, a hair fatter than the polished ones, read through the same
+ * refraction the transmission uses): each clear stroke glows solid and even,
+ * like polished glass lit from within, and the frost spreads the same light
+ * into a soft halo that follows the letters. The tube bank stays as structure
+ * behind the FROST only (seen through a polished letter it read as evenly
+ * spaced stripes: a scan-line look).
  *
  * One custom gradient (blush → lilac → periwinkle, left → right) is shared by
  * the card, the tubes and the light the slab spills onto the floor; a single
@@ -19,7 +22,7 @@ import { frosted, pane } from '../../kit/glass'
  * right, so the words come alive letter by letter. `front` adds a moving
  * brighter band at the sweep's edge (the light passing behind the letters).
  *
- * Floor at y = 0; the slab's glass front faces +z, centred on x = 0.
+ * Floor at y = 0; the slab's glass front faces +z, centered on x = 0.
  */
 
 export const SLAB = {
@@ -32,7 +35,7 @@ export const SLAB = {
   /** the glass's bottom edge above the floor (a slim black plinth) */
   LIFT: 0.08,
 }
-/** the glass's centre height above the floor */
+/** the glass's center height above the floor */
 export const SLAB_CY = SLAB.LIFT + SLAB.H / 2
 
 const GRAD = [DUSK.blush, DUSK.lilac, DUSK.periwinkle] as const
@@ -58,6 +61,38 @@ const gradUniforms = () => ({
   uC: { value: new THREE.Color(GRAD[2]) },
 })
 
+/*
+ * Which point of the glass's front face sees a point q of a plane dz behind
+ * that face, through a POLISHED window: undoes the refraction offset three's
+ * transmission samples with (a ray into a slab of thickness uT, index uIor).
+ * view = toward the camera in the slab's frame. Lets light drawn behind the
+ * glass line up with the etch from any angle.
+ */
+const WINDOW_GLSL = /* glsl */ `
+  uniform float uT, uIor;
+  vec2 throughWindow(vec2 q, vec3 view, float dz) {
+    vec3 V = normalize(view);
+    float s = length(V.xy);
+    vec2 u = s > 1e-5 ? V.xy / s : vec2(0.0);
+    float tanT = s / max(V.z, 0.05);
+    float sr = s / uIor;
+    return q - u * (tanT * (uT * sqrt(1.0 - sr * sr) - dz) - uT * sr);
+  }
+`
+
+/** plane-local xy + the direction to the camera in the slab's frame */
+const VIEW_VERT = /* glsl */ `
+  varying vec2 vP;
+  varying vec3 vV;
+  void main() {
+    vP = position.xy;
+    vec4 wp = modelMatrix * vec4(position, 1.0);
+    // no scale in the chain: the transpose is the inverse rotation
+    vV = transpose(mat3(modelMatrix)) * (cameraPosition - wp.xyz);
+    gl_Position = projectionMatrix * viewMatrix * wp;
+  }
+`
+
 // ------------------------------------------------------------------ the card
 
 const CARD_VERT = /* glsl */ `
@@ -66,11 +101,15 @@ const CARD_VERT = /* glsl */ `
 `
 const CARD_FRAG = /* glsl */ `
   ${GRAD_GLSL}
-  uniform float uLevel, uHdr, uSweep, uSoft, uStandby, uFront, uFrontX;
-  varying vec2 vUv;
+  ${WINDOW_GLSL}
+  uniform sampler2D uMap;
+  uniform vec2 uSize, uGlass;
+  uniform float uLevel, uHdr, uSweep, uSoft, uStandby, uFront, uFrontX, uDz, uHalo, uHaloBias;
+  varying vec2 vP;
+  varying vec3 vV;
   void main() {
-    vec2 p = vUv - 0.5;
-    float x = vUv.x;
+    vec2 p = vP / uSize;
+    float x = p.x + 0.5;
     float lv = mix(uStandby, 1.0, swept(x, uSweep, uSoft));
     // a brighter band riding the sweep's edge (and the copy glint)
     float d = (x - uFrontX) / 0.045;
@@ -78,8 +117,12 @@ const CARD_FRAG = /* glsl */ `
     // soft edges: the card never reads as a hard rectangle through the frost
     vec2 e = smoothstep(vec2(0.0), vec2(0.05, 0.16), 0.5 - abs(p));
     // a little more light through the middle (where the words are)
-    float band = 0.78 + 0.32 * exp(-(p.y * p.y) / 0.035);
-    gl_FragColor = vec4(grad(x) * uHdr * uLevel * (lv * band + front) * e.x * e.y, 1.0);
+    float band = 0.84 + 0.22 * exp(-(p.y * p.y) / 0.035);
+    // … and a soft glow that follows the letters (a very blurred read of the
+    // etch, lined up through the glass): the frost around the words glows
+    vec2 st = throughWindow(vP, vV, uDz) / uGlass + 0.5;
+    float halo = (1.0 - texture2D(uMap, st, uHaloBias).g) * uHalo;
+    gl_FragColor = vec4(grad(x) * uHdr * uLevel * (lv * (band + halo) + front) * e.x * e.y, 1.0);
   }
 `
 
@@ -118,6 +161,39 @@ const TUBE_FRAG = /* glsl */ `
   }
 `
 
+// ------------------------------------------------------------------ the words, in light
+
+const WORD_FRAG = /* glsl */ `
+  ${GRAD_GLSL}
+  ${WINDOW_GLSL}
+  uniform sampler2D uMap;
+  uniform vec2 uSize;
+  uniform float uDz, uBias, uCut;
+  uniform float uLevel, uHdr, uSweep, uSoft, uStandby, uFront, uFrontX;
+  varying vec2 vP;
+  varying vec3 vV;
+  void main() {
+    vec2 p = throughWindow(vP, vV, uDz);
+    vec2 st = p / uSize + 0.5;
+    // a softened read of the letters (G: 1 frost, 0 polished), thresholded
+    // low: the light letter is a hair fatter than the window in front of it
+    float k = 1.0 - texture2D(uMap, st, uBias).g;
+    if (k < uCut) discard;
+    float x = st.x;
+    float lit = mix(uStandby, 1.0, swept(x, uSweep, uSoft));
+    float d = (x - uFrontX) / 0.04;
+    lit = uLevel * (lit + exp(-d * d) * uFront * 0.7);
+    // glass lit from within: the light's own color, a touch whiter at its
+    // heart, a little brighter through the middle of the line
+    vec3 c = grad(x) * uHdr;
+    float m = max(c.r, max(c.g, c.b));
+    c = mix(c, vec3(m), 0.22);
+    float py = p.y / uSize.y;
+    float band = 0.86 + 0.2 * exp(-(py * py) / 0.05);
+    gl_FragColor = vec4(c * lit * band, 1.0);
+  }
+`
+
 // ------------------------------------------------------------------ floor light
 
 const SPILL_VERT = CARD_VERT
@@ -141,7 +217,7 @@ const SPILL_FRAG = /* glsl */ `
   }
 `
 
-/** A radial fade for the floor (alphaMap reads GREEN: grey on opaque black). */
+/** A radial fade for the floor (alphaMap reads GREEN: gray on opaque black). */
 function floorFade() {
   const c = document.createElement('canvas')
   c.width = c.height = 128
@@ -160,20 +236,6 @@ function floorFade() {
   return t
 }
 
-// ------------------------------------------------------------------ the cove line
-
-const COVE_FRAG = /* glsl */ `
-  uniform vec3 uColor;
-  uniform float uLevel;
-  varying vec2 vUv;
-  void main() {
-    // a hairline of warm light along the back wall, fading out at both ends
-    float x = abs(vUv.x - 0.5) * 2.0;
-    float ends = 1.0 - smoothstep(0.35, 1.0, x);
-    gl_FragColor = vec4(uColor * uLevel * ends, 1.0);
-  }
-`
-
 export interface SlabState {
   /** overall light level 0..1 */
   level: number
@@ -189,13 +251,13 @@ export interface SlabState {
 export interface Slab {
   group: THREE.Group
   glass: THREE.Mesh
-  /** world-space centre of the glass (the subject) */
-  centre: THREE.Vector3
+  /** world-space center of the glass (the subject) */
+  center: THREE.Vector3
   set(s: SlabState): void
-  /** the cove hairline on the back wall: 0..1 */
-  setCove(v: number): void
   /** repaint the etch (fonts.ready) */
   redraw(): void
+  /** free the etch canvas once it's on the GPU (after the fonts.ready redraw: no redraws after this) */
+  release(): void
   /** true once the etch was drawn with the real font */
   fontOk: boolean
 }
@@ -219,10 +281,15 @@ export function buildSlab(o: { mobile: boolean; envMap: THREE.Texture | null }):
   const zGlass = 0
   const zCard = zGlass - D / 2 - GAP
   const zTubes = zGlass - D / 2 - GAP * 0.42
+  // the pane's bevel adds to its depth: its faces sit BEVEL beyond ±D/2
+  const BEVEL = 0.035
+  const zFront = zGlass + D / 2 + BEVEL
 
-  // ---- the etch: "Say hello." polished clear, centred on the glass
-  const res = 1024
+  // ---- the etch: "Say hello." polished clear, centered on the glass. Phones:
+  // 512 (the slab spans ~390 css px there; the italic's hairlines still hold)
+  const res = o.mobile ? 512 : 1024
   let paint: (() => void) | null = null
+  let released = false
   const slab: Partial<Slab> = { fontOk: false }
   const tex = etchMap(
     W,
@@ -249,7 +316,7 @@ export function buildSlab(o: { mobile: boolean; envMap: THREE.Texture | null }):
         const asc = n.actualBoundingBoxAscent ?? px * 0.7
         const desc = n.actualBoundingBoxDescent ?? px * 0.25
         const [cx0, cy0] = toPx(0, 0.02)
-        // centre the INK box (italics overhang their advance)
+        // center the INK box (italics overhang their advance)
         const x = cx0 - (right - left) / 2 + left
         const y = cy0 + (asc - desc) / 2
         g.textBaseline = 'alphabetic'
@@ -276,14 +343,20 @@ export function buildSlab(o: { mobile: boolean; envMap: THREE.Texture | null }):
   mat.envMap = o.envMap
   mat.envMapIntensity = 0.42
   mat.needsUpdate = true
-  const glass = pane(W, H, { depth: D, radius: 0.05, bevel: 0.035, material: mat })
+  const glass = pane(W, H, { depth: D, radius: 0.05, bevel: BEVEL, material: mat })
   glass.position.set(0, cy, zGlass)
   group.add(glass)
 
   // ---- the light: a soft gradient card + the tube bank
+  const optics = { uT: { value: mat.thickness }, uIor: { value: mat.ior }, uMap: { value: tex }, uGlass: { value: new THREE.Vector2(W, H) } }
   const cardMat = new THREE.ShaderMaterial({
     uniforms: {
       ...gradUniforms(),
+      ...optics,
+      uSize: { value: new THREE.Vector2(W * 0.99, H * 0.99) },
+      uDz: { value: zFront - zCard },
+      uHalo: { value: 0.7 },
+      uHaloBias: { value: 3.2 },
       uLevel: { value: 0 },
       uHdr: { value: 0.58 },
       uSweep: { value: 0 },
@@ -292,7 +365,7 @@ export function buildSlab(o: { mobile: boolean; envMap: THREE.Texture | null }):
       uFront: { value: 0 },
       uFrontX: { value: -1 },
     },
-    vertexShader: CARD_VERT,
+    vertexShader: VIEW_VERT,
     fragmentShader: CARD_FRAG,
   })
   const card = new THREE.Mesh(new THREE.PlaneGeometry(W * 0.99, H * 0.99), cardMat)
@@ -332,6 +405,33 @@ export function buildSlab(o: { mobile: boolean; envMap: THREE.Texture | null }):
   const tubes = new THREE.Mesh(tubeGeo, tubeMat)
   tubes.position.set(0, cy, zTubes)
   group.add(tubes)
+
+  // the words in light, just behind the glass (in front of the tubes: a
+  // polished letter sees only this; everything else is discarded, so the
+  // frost still sees the card and the bank)
+  const zWord = zGlass - D / 2 - BEVEL - 0.012
+  const wordMat = new THREE.ShaderMaterial({
+    uniforms: {
+      ...gradUniforms(),
+      ...optics,
+      uSize: { value: new THREE.Vector2(W, H) },
+      uDz: { value: zFront - zWord },
+      uBias: { value: 1.2 },
+      uCut: { value: 0.16 },
+      uLevel: { value: 0 },
+      uHdr: { value: 1.7 },
+      uSweep: { value: 0 },
+      uSoft: { value: 0.1 },
+      uStandby: { value: 0.3 },
+      uFront: { value: 0 },
+      uFrontX: { value: -1 },
+    },
+    vertexShader: VIEW_VERT,
+    fragmentShader: WORD_FRAG,
+  })
+  const word = new THREE.Mesh(new THREE.PlaneGeometry(W * 0.92, H * 0.9), wordMat)
+  word.position.set(0, cy, zWord)
+  group.add(word)
 
   // ---- the housing: satin black, slightly inset behind the glass so its
   // polished bevel reads all round; closes the light box from the sides
@@ -389,6 +489,7 @@ export function buildSlab(o: { mobile: boolean; envMap: THREE.Texture | null }):
   const floor = stoneFloor(40, 40, o.envMap)
   const fm = floor.material as THREE.MeshStandardMaterial
   fm.alphaMap = floorFade()
+  releaseAfterUpload(fm.alphaMap)
   fm.transparent = true
   fm.depthWrite = false
   floor.renderOrder = 1
@@ -419,18 +520,7 @@ export function buildSlab(o: { mobile: boolean; envMap: THREE.Texture | null }):
   spill.renderOrder = 2
   group.add(spill)
 
-  // ---- the gallery's own architecture: one long warm hairline where the back
-  // wall meets the ceiling (it dims out with the room at closing)
-  const coveMat = new THREE.ShaderMaterial({
-    uniforms: { uColor: { value: new THREE.Color(DUSK.warm).multiplyScalar(0.95) }, uLevel: { value: 1 } },
-    vertexShader: CARD_VERT,
-    fragmentShader: COVE_FRAG,
-  })
-  const cove = new THREE.Mesh(new THREE.PlaneGeometry(44, 0.016), coveMat)
-  cove.position.set(0, 2.85, -9)
-  group.add(cove)
-
-  const centre = new THREE.Vector3(0, cy, zGlass)
+  const center = new THREE.Vector3(0, cy, zGlass)
 
   const set = (s: SlabState) => {
     const cu = cardMat.uniforms
@@ -445,6 +535,12 @@ export function buildSlab(o: { mobile: boolean; envMap: THREE.Texture | null }):
     tu.uFront.value = s.front
     tu.uFrontX.value = s.frontX
     tu.uStandby.value = s.standby * 0.4
+    const wu = wordMat.uniforms
+    wu.uLevel.value = s.level
+    wu.uSweep.value = s.sweep
+    wu.uFront.value = s.front
+    wu.uFrontX.value = s.frontX
+    wu.uStandby.value = s.standby * 0.6
     const su = spillMat.uniforms
     su.uLevel.value = s.level
     su.uSweep.value = s.sweep
@@ -454,15 +550,17 @@ export function buildSlab(o: { mobile: boolean; envMap: THREE.Texture | null }):
   Object.assign(slab, {
     group,
     glass,
-    centre,
+    center,
     set,
-    setCove(v: number) {
-      coveMat.uniforms.uLevel.value = v
-      cove.visible = v > 0.002
-    },
     redraw() {
+      if (released) return
       paint?.()
       tex.needsUpdate = true
+    },
+    release() {
+      if (released) return
+      released = true
+      releaseAfterUpload(tex)
     },
   })
   return slab as Slab

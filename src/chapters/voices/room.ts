@@ -7,25 +7,25 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
  * A black gallery (floor y = 0, far wall z = 0, side walls, ceiling) with ONE
  * rectangular APERTURE cut knife-edged into the far wall. Behind it, a
  * sensing space (a coved box, depth DEPTH, a little larger than the opening)
- * whose back wall is an even field of coloured light: from the room you see
- * a flat plane of colour whose depth you can't judge. The field is a soft
- * two-colour gradient (top → bottom, the dusk sky after sunset), with the
+ * whose back wall is an even field of colored light: from the room you see
+ * a flat plane of color whose depth you can't judge. The field is a soft
+ * two-color gradient (top → bottom, the dusk sky after sunset), with the
  * faint brightening of the hidden cove lights near the sensing space's edges,
  * which parallaxes a hair against the knife edge as the camera drifts.
  *
  * The aperture is the room's ONLY light. Every surface is lit by it exactly
  * (the Lambert form factor of the opening's two halves — top and bottom
- * colour — no RectAreaLight), the polished black stone (floor, bench top)
- * reflects it as a soft coloured streak, and the low stone bench occludes
+ * color — no RectAreaLight), the polished black stone (floor, bench top)
+ * reflects it as a soft colored streak, and the low stone bench occludes
  * both (a soft shadow on the floor, its silhouette across the reflection).
  * All of it is one small shader, three programs (far wall / plaster / stone).
  * No transmission, no lights, no textures: cheap on phones.
  *
- * Colours come in LINEAR and already luminance-balanced (index.ts), so a
- * change of colour is a change of hue, never of brightness.
+ * Colors come in LINEAR and already luminance-balanced (index.ts), so a
+ * change of color is a change of hue, never of brightness.
  */
 
-/** the room (world units ≈ metres) */
+/** the room (world units ≈ meters) */
 export const ROOM = {
   /** far wall at z = 0: x extent */
   x0: -8,
@@ -35,7 +35,7 @@ export const ROOM = {
   /** the sensing space behind the aperture */
   cavityDepth: 2.2,
   cavityMargin: 0.55,
-  /** the aperture at rest (centre + half size) */
+  /** the aperture at rest (center + half size) */
   apX: 0,
   apY: 1.55,
   apW: 3.2,
@@ -58,9 +58,9 @@ const VERT = /* glsl */ `
 
 const FRAG = /* glsl */ `
   #define PI 3.14159265
-  uniform vec2 uApC;       // aperture centre (x, y) on the z = 0 wall
+  uniform vec2 uApC;       // aperture center (x, y) on the z = 0 wall
   uniform vec2 uApH;       // aperture half size
-  uniform vec3 uTop;       // field colour at the top (linear, balanced)
+  uniform vec3 uTop;       // field color at the top (linear, balanced)
   uniform vec3 uBot;       // … and at the bottom
   uniform float uTilt;     // the gradient's slant (radians, tiny)
   uniform float uCavD;     // sensing space depth
@@ -129,7 +129,7 @@ const FRAG = /* glsl */ `
     return min(boxHit(o, inv, uBMin, uBMax), min(boxHit(o, inv, uL0Min, uL0Max), boxHit(o, inv, uL1Min, uL1Max)));
   }
 
-  // direct light from the opening (top and bottom halves carry their own colour)
+  // direct light from the opening (top and bottom halves carry their own color)
   vec3 direct(vec3 p, vec3 n) {
     float x0 = uApC.x - uApH.x, x1 = uApC.x + uApH.x;
     float y0 = uApC.y - uApH.y, y1 = uApC.y + uApH.y;
@@ -161,10 +161,13 @@ const FRAG = /* glsl */ `
     vec3 v = normalize(p - cameraPosition);
     vec3 r = reflect(v, vec3(0.0, 1.0, 0.0));
     float cosT = max(dot(-v, vec3(0.0, 1.0, 0.0)), 0.0);
-    float fres = 0.045 + 0.955 * pow(1.0 - cosT, 5.0);
+    // Schlick, without pow(): 1 - cosT can dip below 0 by an ulp near vertical
+    float fc5 = clamp(1.0 - cosT, 0.0, 1.0);
+    float fc2 = fc5 * fc5;
+    float fres = 0.045 + 0.955 * fc2 * fc2 * fc5;
     float t = r.z < -1e-4 ? -p.z / r.z : 1e4;
     vec3 q = p + r * t;
-    // the blur grows with the distance travelled, stretched along the streak
+    // the blur grows with the distance traveled, stretched along the streak
     vec2 soft = vec2(0.03 + t * uRough * 0.55, 0.05 + t * uRough * 1.2);
     vec2 dd = abs(q.xy - uApC) - uApH;
     float cov = (1.0 - smoothstep(-soft.x, soft.x, dd.x)) * (1.0 - smoothstep(-soft.y, soft.y, dd.y));
@@ -248,7 +251,7 @@ export interface RoomUniforms {
 export interface Room {
   group: THREE.Group
   u: RoomUniforms
-  /** set the opening (centre + half size) */
+  /** set the opening (center + half size) */
   setAperture(cx: number, cy: number, hw: number, hh: number): void
   /** materials, for per-surface tuning */
   mats: { wall: THREE.ShaderMaterial; plaster: THREE.ShaderMaterial; floor: THREE.ShaderMaterial; bench: THREE.ShaderMaterial }

@@ -9,10 +9,10 @@ import { drawIcon } from './icons'
  * SERVICES · "Spectrum" — the installation.
  *
  * Eleven tall frosted glass FINS standing on black stone in a gentle arc
- * (concave to the visitor: every fin faces the arc's centre, so a camera
+ * (concave to the visitor: every fin faces the arc's center, so a camera
  * gliding round the inner arc always meets the active fin square on). Each
  * fin is backlit by its own LIGHT CARD: a pair of vertical tubes (drawn in
- * the card shader) in two neighbouring colours of one dusk spectrum, blush →
+ * the card shader) in two neighboring colors of one dusk spectrum, blush →
  * rose → lilac → violet → periwinkle → ice → warm white, so the row reads as
  * ONE gradient, never a rainbow.
  *
@@ -43,17 +43,17 @@ const Z_FRONT = FD / 2 + BEVEL
 const Z_CARD = -(FD / 2 + BEVEL) - 0.03
 /** the frosted caps' optical thickness (the card follows the same refraction) */
 const GLASS_THICKNESS = 0.1
-/** fins stand on the stone (y = 0); fin centre height */
+/** fins stand on the stone (y = 0); fin center height */
 export const FY = FH / 2 + 0.012
-/** the arc: radius, and the angle between neighbouring fins (a pitch of ~1.02) */
+/** the arc: radius, and the angle between neighboring fins (a pitch of ~1.02) */
 export const R = 12
 export const STEP = 1.02 / R
-/** the arc's centre: fin 5 stands at the origin, facing +z */
+/** the arc's center: fin 5 stands at the origin, facing +z */
 export const CENTER = new THREE.Vector3(0, 0, R)
 /** icon + number zone in fin-local coords (x0, y0, x1, y1) */
 const ZONE = new THREE.Vector4(-0.25, -0.24, 0.25, 0.6)
 const GRID = new THREE.Vector2(4, 3)
-/** icon box (half size) and centre height, fin-local */
+/** icon box (half size) and center height, fin-local */
 const ICON_HALF = 0.2
 const ICON_Y = 0.3
 const NUM_Y = -0.1
@@ -65,7 +65,7 @@ const CH = 2.56
 const TUBE_X = 0.205
 const TUBE_HALF = 1.16
 
-// ------------------------------------------------------------------ colour
+// ------------------------------------------------------------------ color
 
 /** the dusk spectrum, sampled 0..1 (linear-light interpolation between the palette stops) */
 const STOPS: [number, string][] = [
@@ -94,9 +94,9 @@ export function spectrum(t: number, out = new THREE.Color()) {
 /** fin i's spectrum position */
 export const finT = (i: number) => i / (N - 1)
 /**
- * Light output per fin: pale colours (ice, warm white) cross the bloom
+ * Light output per fin: pale colors (ice, warm white) cross the bloom
  * threshold on all three channels and read ~3x brighter than violet at the
- * same level — scale each fin by its colour's luminance so the eleven lights
+ * same level — scale each fin by its color's luminance so the eleven lights
  * read as one even row.
  */
 export function gainOf(c: THREE.Color) {
@@ -106,14 +106,14 @@ export function gainOf(c: THREE.Color) {
 export function finGain(i: number) {
   return gainOf(spectrum(finT(i)))
 }
-/** fin i's colour as sRGB hex (for the DOM) */
+/** fin i's color as sRGB hex (for the DOM) */
 export const finHex = (i: number) => '#' + spectrum(finT(i)).getHexString()
 
 // ------------------------------------------------------------------ arc
 
 /** fin angle on the arc (fractional index ok) */
 export const finAngle = (f: number) => (f - (N - 1) / 2) * STEP
-/** a point on a circle of radius r round the arc's centre, at fin position f */
+/** a point on a circle of radius r round the arc's center, at fin position f */
 export function arcPoint(f: number, r: number, y: number, out: THREE.Vector3) {
   const a = finAngle(f)
   return out.set(CENTER.x + Math.sin(a) * r, y, CENTER.z - Math.cos(a) * r)
@@ -314,7 +314,7 @@ const CARD_VERT = /* glsl */ `
   attribute vec3 aColA;
   attribute vec3 aColB;
   attribute float aGain;
-  /** fin centre x, z and its arc angle */
+  /** fin center x, z and its arc angle */
   attribute vec3 aFrame;
   uniform float uLevel[${N}];
   uniform float uZFront, uZCard, uFinY, uThick, uIor;
@@ -494,7 +494,8 @@ const POOL_FRAG = /* glsl */ `
     float streak = exp(-sq(vL.x / 0.2)) * exp(-z * 3.2) * (1.0 - exp(-z * 40.0));
     // and the light pooling on the floor round it
     float pool = exp(-sq(vL.x / 0.5) - sq(z / 0.45));
-    float edge = smoothstep(0.5, 0.2, abs(vL.x) / 1.4) * (1.0 - smoothstep(0.7, 1.0, z));
+    // (1 - smoothstep(a, b, x), never reversed edges: undefined in GLSL ES)
+    float edge = (1.0 - smoothstep(0.2, 0.5, abs(vL.x) / 1.4)) * (1.0 - smoothstep(0.7, 1.0, z));
     gl_FragColor = vec4(vCol * (streak * 0.55 + pool * 0.22) * edge * vLevel * uK, 1.0);
   }
 `
@@ -514,7 +515,7 @@ export function buildPools(): Pools {
   const W = 1.4
   const D = 2.6
   for (let i = 0; i < N; i++) {
-    // a floor quad in front of fin i: x across, z toward the arc's centre
+    // a floor quad in front of fin i: x across, z toward the arc's center
     const g = new THREE.PlaneGeometry(W, D)
     g.rotateX(-Math.PI / 2)
     g.translate(0, 0, D / 2 + 0.02)

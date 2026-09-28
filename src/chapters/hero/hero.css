@@ -1,12 +1,12 @@
 /* HERO · Threshold — chapter-scoped copy layout (.hero-*)
 
    landing (.hero-intro): eyebrow + the h1 + manifesto + scroll hint.
-     landscape: one column on the left, vertically centred between the chrome
+     landscape: one column on the left, vertically centered between the chrome
      bands; the slab stands right of it.
      portrait: a title plate in the top band (eyebrow + h1) and a plate in the
      bottom band (manifesto + hint); the slab stands between them.
    payoff (.hero-payoff): the locale line + the two CTAs (the lit slab is the
-     headline). Landscape: left, centred; portrait: a plate in the bottom band.
+     headline). Landscape: left, centered; portrait: a plate in the bottom band.
 
    index.ts measures these boxes to frame the camera into the free space, so
    the grids use justify-items: start (children shrink to their content). */
@@ -67,7 +67,7 @@
   white-space: nowrap;
 }
 
-/* payoff: the locale line + CTAs on the left, vertically centred between the bands */
+/* payoff: the locale line + CTAs on the left, vertically centered between the bands */
 .hero-payoff {
   position: absolute;
   left: var(--gutter);

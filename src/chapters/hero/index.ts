@@ -18,16 +18,23 @@ import './hero.css'
  * the Flavin bank behind it is crisp; everywhere else the slab is a soft
  * opal glow. Architectural, still.
  *
- *   0.00–0.13  landing: eyebrow, the h1 (BRAND.tagline), manifesto, scroll
+ *   0.00–0.155 landing: eyebrow, the h1 (BRAND.tagline), manifesto, scroll
  *              hint. The slab's light dims up once after the reveal (Dimmer,
  *              ~1.2 s) and then simply stays lit. Slab right of the copy
  *              (portrait: between the title plate and the manifesto plate).
- *   0.14–0.62  a slow arc around the slab: the camera swings past its right
- *              edge (the polished bevel catches the travelling highlight, the
+ *   0.155–0.60 a slow arc around the slab: the camera swings past its right
+ *              edge (the polished bevel catches the traveling highlight, the
  *              tubes stand bare behind the glass) and settles on a 3/4 view;
  *              the gels shift rose → violet → ice with local (continuous).
- *   0.62–0.935 payoff: composed 3/4 frame, the locale label + the two CTAs.
+ *              The eyebrow + h1 leave as the arc starts; the manifesto and
+ *              the hint stay with the slab through the first half of it (a
+ *              quiet caption beat — the arc is never copy-less for long).
+ *   0.48–0.93  payoff: composed 3/4 frame, the locale label + the two CTAs;
+ *              the Flavin floor piece dims up once the manifesto has gone.
  *   0.935–1.00 out: a push into the lit face (light in frame for the cut).
+ *
+ * Copy fades by TIME (Dimmer) once the scroll crosses its threshold, so a
+ * parked frame never shows a half-faded headline over a still slab.
  *
  * Framing is computed, not hand-posed: each key pose orbits the slab at a
  * fixed yaw/pitch and fits the slab's world box into the screen space the
@@ -37,21 +44,24 @@ import './hero.css'
  *
  * The hero publishes where its mark sits on the landing frame (local 0) as
  * CSS vars on <html> for the loader's match cut:
- *   --hark-mark-x, --hark-mark-y  centre of the mark's SVG viewBox, CSS px
+ *   --hark-mark-x, --hark-mark-y  center of the mark's SVG viewBox, CSS px
  *   --hark-mark-size              side of that (square) viewBox, CSS px
  */
 
 const FLOOR_Y = -2.0
-/** slab geometry (world units ≈ metres: 3.9 m of glass, a person is 1.8) */
+/** slab geometry (world units ≈ meters: 3.9 m of glass, a person is 1.8) */
 const SLAB = { w: 2.2, h: 3.86, depth: 0.12, bevel: 0.05, gap: 0.34, markH: 1.34, markY: 0.4, plinthH: 0.16 }
-/** landing copy holds (settled) until INTRO_HOLD, gone by INTRO_OUT */
-const INTRO_HOLD = 0.13
-const INTRO_OUT = 0.17
-/** payoff copy fades in over PAY_A..PAY_B, out over PAY_C..PAY_D */
-const PAY_A = 0.6
-const PAY_B = 0.66
-const PAY_C = 0.93
-const PAY_D = 0.955
+/** camera keys: landing hold → arc (past the edge) → payoff → the out push */
+const ARC = { hold: 0.155, mid: 0.41, pay: 0.6, out: 0.935 }
+/**
+ * copy thresholds (each block fades by time on crossing): the eyebrow + h1
+ * leave as the arc starts; the manifesto + hint stay through its first half;
+ * the payoff (locale + CTAs) is on over PAY_IN..PAY_OUT
+ */
+const HEAD_OUT = ARC.hold
+const FOOT_OUT = 0.37
+const PAY_IN = 0.48
+const PAY_OUT = 0.93
 
 /** gels: the dominant light travels rose → violet → ice (A left, B right) */
 const GELS = [
@@ -70,16 +80,24 @@ export default function create(): Chapter {
   let slab: Slab
   let fl: FloorLight
   /**
-   * the room's one piece: a Flavin-style corner — a vertical hairline and a
-   * hairline lying on the floor from its foot, meeting in an implied corner.
-   * Off at the landing (the entrance is the slab alone); it dims up as the
-   * camera starts round, placed per layout so the payoff frame shows it in
-   * the gap between the CTAs and the slab.
+   * the room's one piece: a Flavin-style corner — a standing ice tube (thick
+   * enough to read as a lit fluorescent with its own soft halo, never a stray
+   * hairline) and a warm hairline lying on the floor from its foot.
+   * Off at the landing (the entrance is the slab alone); it dims up once the
+   * manifesto has left the arc, placed per layout so the payoff frame shows
+   * it in the gap between the CTAs and the slab.
    */
   const corner = { group: new THREE.Group(), post: null as NeonPart | null, run: null as NeonPart | null, x: -5.2, show: true, color: new THREE.Color(DUSK.ice), runColor: new THREE.Color(DUSK.warm) }
   const CORNER = { z: -5.4, top: 4.2, run: 3.2 }
   const cornerDim = new Dimmer(1.1, 0.6)
   const dim = new Dimmer(1.2, 0.5)
+  /** the copy blocks fade by time once the scroll crosses their thresholds */
+  const headDim = new Dimmer(0.45, 0.35)
+  const footDim = new Dimmer(0.45, 0.35)
+  const payDim = new Dimmer(0.5, 0.35)
+  /** snap the copy to its targets on the next update (entering, teleports) */
+  let snapCopy = true
+  let lastLocal = NaN
   let revealed = false
   let portrait: boolean | null = null
 
@@ -90,6 +108,7 @@ export default function create(): Chapter {
   let payoff: HTMLElement
   let payInner: HTMLElement
   let title: HTMLElement
+  let dy = 12
 
   // the slab's pivot (world) and its framing box
   const pivot = new THREE.Vector3()
@@ -97,7 +116,7 @@ export default function create(): Chapter {
   const markAt = new THREE.Vector3()
 
   /** the free screen space the copy leaves (CSS px), measured from the DOM */
-  const lay = { w: 0, h: 0, at: -1, safeT: 96, safeB: 804, landR: 560, payR: 420, headB: 260, footT: 600, payT: 560 }
+  const lay = { w: 0, h: 0, at: -1, safeT: 96, safeB: 804, landR: 560, footR: 560, payR: 420, headB: 260, footT: 600, payT: 560 }
   const K = { land: orbit(), land2: orbit(), mid: orbit(), pay: orbit(), pay2: orbit(), out: orbit() }
   let posesKey = ''
   let markKey = ''
@@ -170,7 +189,7 @@ export default function create(): Chapter {
   function poses(frame: Frame) {
     const w = Math.max(1, frame.width)
     const h = Math.max(1, frame.height)
-    const key = `${w}x${h}:${lay.safeT}:${lay.safeB}:${lay.landR}:${lay.payR}:${lay.headB}:${lay.footT}:${lay.payT}:${portrait}`
+    const key = `${w}x${h}:${lay.safeT}:${lay.safeB}:${lay.landR}:${lay.footR}:${lay.payR}:${lay.headB}:${lay.footT}:${lay.payT}:${portrait}`
     if (key === posesKey) return K
     posesKey = key
     const a = w / h
@@ -186,14 +205,17 @@ export default function create(): Chapter {
       // landing: nearly frontal (the loader's flat mark lands on it), right of the copy
       const u0 = clamp(lay.landR / w + 0.07, 0.5, 0.66)
       fit(set(K.land, -0.14, 0, 34), a, ...toNdc(u0, 0.955, vT + 0.015, vB - 0.1))
-      // the arc: past the right edge, close — the slab fills the height
-      fit(set(K.mid, 0.92, -0.04, 36), a, ...toNdc(0.26, 0.8, 0.05, 0.97))
+      // the arc: past the right edge, close — the slab fills the height,
+      // right of the manifesto (it stays through the first half of the arc)
+      const m0 = clamp(lay.footR / w + 0.05, 0.26, 0.5)
+      fit(set(K.mid, 0.92, -0.04, 36), a, ...toNdc(m0, Math.max(0.8, m0 + 0.44), 0.05, 0.97))
       // payoff: a 3/4 view right of the CTAs
       const p0 = clamp(lay.payR / w + 0.08, 0.5, 0.64)
       fit(set(K.pay, 0.42, 0, 34), a, ...toNdc(p0, 0.955, vT + 0.015, vB - 0.1))
     } else {
       fit(set(K.land, -0.1, 0, 44), a, ...toNdc(0.1, 0.9, lay.headB / h + 0.02, lay.footT / h - 0.05))
-      fit(set(K.mid, 0.8, -0.04, 46), a, ...toNdc(-0.04, 1.04, 0.06, 0.96))
+      // the arc: the slab fills the frame above the manifesto plate
+      fit(set(K.mid, 0.8, -0.04, 46), a, ...toNdc(-0.04, 1.04, 0.06, lay.footT / h - 0.03))
       fit(set(K.pay, 0.34, 0, 44), a, ...toNdc(0.1, 0.9, vT + 0.02, lay.payT / h - 0.06))
     }
     placeCorner(a)
@@ -220,7 +242,7 @@ export default function create(): Chapter {
     const gap = sx0 - left
     // portrait: the slab owns the frame's width; the piece would only clip at the edge
     corner.show = !portrait && gap > 0.16
-    // the gap's centre, on the horizon: cast to the corner's depth
+    // the gap's center, on the horizon: cast to the corner's depth
     const nx = left + gap * 0.5
     pv.set(nx, 0, 0.5).unproject(probe).sub(probe.position).normalize()
     const t = (CORNER.z - probe.position.z) / (pv.z || -1e-3)
@@ -240,17 +262,17 @@ export default function create(): Chapter {
 
   /** the orbit along the story (no allocation) */
   function orbitAt(local: number, P: typeof K, out: Orbit) {
-    if (local < 0.14) return mix(P.land, P.land2, segment(local, 0, 0.14), out)
-    if (local < 0.42) return mix(P.land2, P.mid, easeSine(segment(local, 0.14, 0.42)), out)
-    if (local < 0.63) return mix(P.mid, P.pay, easeSine(segment(local, 0.42, 0.63)), out)
-    if (local < 0.935) return mix(P.pay, P.pay2, segment(local, 0.63, 0.935), out)
-    return mix(P.pay2, P.out, ease.inOutCubic(segment(local, 0.935, 1)), out)
+    if (local < ARC.hold) return mix(P.land, P.land2, segment(local, 0, ARC.hold), out)
+    if (local < ARC.mid) return mix(P.land2, P.mid, easeSine(segment(local, ARC.hold, ARC.mid)), out)
+    if (local < ARC.pay) return mix(P.mid, P.pay, easeSine(segment(local, ARC.mid, ARC.pay)), out)
+    if (local < ARC.out) return mix(P.pay, P.pay2, segment(local, ARC.pay, ARC.out), out)
+    return mix(P.pay2, P.out, ease.inOutCubic(segment(local, ARC.out, 1)), out)
   }
 
-  /** the gel at this local: rose → violet over 0.15–0.38, violet → ice over 0.38–0.6 */
+  /** the gel at this local: rose → violet over 0.15–0.36, violet → ice over 0.36–0.57 */
   function gelAt(local: number) {
-    const k1 = easeSine(segment(local, 0.15, 0.38))
-    const k2 = easeSine(segment(local, 0.38, 0.6))
+    const k1 = easeSine(segment(local, 0.15, 0.36))
+    const k2 = easeSine(segment(local, 0.36, 0.57))
     gA.copy(GELS[0].a).lerp(GELS[1].a, k1).lerp(GELS[2].a, k2)
     gB.copy(GELS[0].b).lerp(GELS[1].b, k1).lerp(GELS[2].b, k2)
   }
@@ -278,10 +300,14 @@ export default function create(): Chapter {
     // the right edge of what's written (words, not the column box)
     let r = 0
     for (const wd of title.querySelectorAll<HTMLElement>('.rise-w')) r = Math.max(r, offsetBox(wd).r)
-    for (const c of [head.firstElementChild, ...Array.from(foot.children)] as HTMLElement[]) {
-      if (c && getComputedStyle(c).display !== 'none') r = Math.max(r, offsetBox(c).r)
+    if (head.firstElementChild) r = Math.max(r, offsetBox(head.firstElementChild as HTMLElement).r)
+    let fr = 0
+    for (const c of Array.from(foot.children) as HTMLElement[]) {
+      if (getComputedStyle(c).display !== 'none') fr = Math.max(fr, offsetBox(c).r)
     }
+    r = Math.max(r, fr)
     if (r > 0) lay.landR = r
+    if (fr > 0) lay.footR = fr
     let pr = 0
     for (const c of payInner.children) pr = Math.max(pr, offsetBox(c as HTMLElement).r)
     if (pr > 0) lay.payR = pr
@@ -321,7 +347,7 @@ export default function create(): Chapter {
     group,
     // the CTAs (sr copy item 0): the settled payoff
     anchors: [0.76],
-    busy: () => dim.busy || cornerDim.busy || !revealed,
+    busy: () => dim.busy || cornerDim.busy || headDim.busy || footDim.busy || payDim.busy || !revealed,
     async init(ctx) {
       stage = ctx.stage
       whenRevealed().then(() => (revealed = true))
@@ -347,11 +373,13 @@ export default function create(): Chapter {
       // trace the reflection from the camera actually rendering (no one-frame lag)
       fl.mesh.onBeforeRender = (_r, _s, cam) => fl.u.uCam.value.setFromMatrixPosition(cam.matrixWorld)
       group.add(fl.mesh)
-      // the corner piece: a standing hairline + one lying on the floor from its foot
-      const hair = (a: THREE.Vector3, b: THREE.Vector3, color: string) =>
-        neonFromStrokes([{ pts: [a, b] }], { color, radius: 0.011, hdr: 1.25, blockout: false, electrodes: false, smooth: false, caps: false, radial: 6 })
-      corner.post = hair(new THREE.Vector3(0, 0.02, 0), new THREE.Vector3(0, CORNER.top, 0), DUSK.ice)
-      corner.run = hair(new THREE.Vector3(-0.06, 0.012, 0), new THREE.Vector3(-0.06 - CORNER.run, 0.012, 0), DUSK.warm)
+      // the corner piece: a standing lit tube + a hairline lying on the floor from its foot
+      // (the floor run stays thin and just under the bloom threshold: a slanted
+      // hairline that crosses it beads into dots)
+      const hair = (a: THREE.Vector3, b: THREE.Vector3, color: string, radius: number, hdr: number) =>
+        neonFromStrokes([{ pts: [a, b] }], { color, radius, hdr, blockout: false, electrodes: false, smooth: false, caps: false, radial: 8 })
+      corner.post = hair(new THREE.Vector3(0, 0.02, 0), new THREE.Vector3(0, CORNER.top, 0), DUSK.ice, 0.02, 1.7)
+      corner.run = hair(new THREE.Vector3(-0.06, 0.012, 0), new THREE.Vector3(-0.06 - CORNER.run, 0.012, 0), DUSK.warm, 0.011, 1.25)
       corner.group.add(corner.post.group, corner.run.group)
       group.add(corner.group)
 
@@ -392,12 +420,18 @@ export default function create(): Chapter {
       })
     },
 
+    onEnter() {
+      snapCopy = true
+    },
+
     update(local, frame, ctx) {
       // the same test as the CSS (max-aspect-ratio: 1/1): a square frame is portrait
       const p = frame.height >= frame.width
       if (p !== portrait) {
         portrait = p
         posesKey = ''
+        // portrait plates sit against the chrome bands: fade in place, never slide into them
+        dy = p ? 0 : 12
       }
       if (frame.width !== lay.w || frame.height !== lay.h || performance.now() - lay.at > 1000) measure(frame)
       publishMark(frame)
@@ -410,12 +444,12 @@ export default function create(): Chapter {
       slab.cardK.trans = 0.24 * lvl
       slab.cardK.main = 0
 
-      // the travelling highlight: the studio turns as the camera arcs
-      const turn = lerp(-0.35, 1.25, easeSine(segment(local, 0.1, 0.62))) + 0.25 * easeSine(segment(local, 0.62, 1))
+      // the traveling highlight: the studio turns as the camera arcs
+      const turn = lerp(-0.35, 1.25, easeSine(segment(local, 0.1, ARC.pay))) + 0.25 * easeSine(segment(local, ARC.pay, 1))
       for (const m of slab.envMats) m.envMapRotation.y = turn
 
-      // the corner piece dims up once the camera starts round (never at the landing)
-      const cl = cornerDim.update(corner.show && local > 0.2 ? lvl : 0, frame.dt)
+      // the floor piece dims up once the manifesto has gone (never at the landing)
+      const cl = cornerDim.update(corner.show && local > FOOT_OUT ? lvl : 0, frame.dt)
       corner.post!.setLevel(cl)
       corner.run!.setLevel(cl)
       corner.group.visible = cl > 0.001
@@ -452,10 +486,28 @@ export default function create(): Chapter {
       PP.bloomThreshold = 1.0
       PP.bloomStrength = lerp(0.55, 0.35, segment(local, 0.935, 1))
 
-      // copy
-      reveal(intro, 1 - smoothstep(INTRO_HOLD, INTRO_OUT, local))
-      setRise(title, revealed && local < INTRO_OUT)
-      reveal(payoff, smoothstep(PAY_A, PAY_B, local) * (1 - smoothstep(PAY_C, PAY_D, local)))
+      // copy: each block fades by time once the scroll crosses its threshold
+      // (snapped on entering and on teleports: jumps land on settled copy)
+      const lc = clamp(local)
+      const snap = snapCopy || !Number.isFinite(lastLocal) || Math.abs(lc - lastLocal) > 0.12
+      snapCopy = false
+      lastLocal = lc
+      const onHead = lc < HEAD_OUT
+      const onFoot = lc < FOOT_OUT
+      const onPay = lc > PAY_IN && lc < PAY_OUT
+      if (snap) {
+        headDim.set(onHead ? 1 : 0)
+        footDim.set(onFoot ? 1 : 0)
+        payDim.set(onPay ? 1 : 0)
+      }
+      const hl = headDim.update(onHead, frame.dt)
+      const ftl = footDim.update(onFoot, frame.dt)
+      // a hard stop inside the cut window: a fling never carries the CTAs into the push
+      const pl = payDim.update(onPay, frame.dt) * (1 - smoothstep(0.945, 0.965, lc))
+      reveal(intro, ftl, dy)
+      reveal(head, ftl > 0.001 ? hl / ftl : 0, 0)
+      setRise(title, revealed && onHead)
+      reveal(payoff, pl, dy)
     },
 
     camera(local: number, frame: Frame, out: CameraPose) {

@@ -12,10 +12,11 @@ import './contact.css'
 /*
  * CONTACT · "Foyer" — the gallery's foyer at closing. One long, low light
  * box of frosted glass stands on black stone with "Say hello." POLISHED into
- * its frost; through the letters the tube bank inside reads crisp and bright
- * while the slab glows soft around them, and its light pools on the floor.
+ * its frost; the letters glow solid and clear (the words are drawn in light
+ * just behind the glass) while the slab glows soft around them, and its
+ * light pools on the floor.
  *
- *   0.00–0.06  the colour-field cut resolves: the slab at its standby glow
+ *   0.00–0.06  the color-field cut resolves: the slab at its standby glow
  *   0.02–0.28  the camera walks up and round to it; the light inside comes up
  *              LEFT → RIGHT behind the words (a soft front with a brighter
  *              band riding it), so "Say hello." lights letter by letter
@@ -25,9 +26,9 @@ import './contact.css'
  *              the slab. Short screens split the panel into two beats (the
  *              address first, then the other concepts) at 0.575
  *   0.85–1.00  closing: the panel goes, the gallery's other lights (the light
- *              field, the hairline slits, the key) dim down, and the camera
- *              comes round to face the slab square — the only light left in
- *              the room — over the sign-off (Back to top + colophon)
+ *              field, the key) dim down, and the camera comes round to face
+ *              the slab square — the only light left in the room — over the
+ *              sign-off (the address, Back to top, colophon)
  *
  * The camera and the copy derive from `local`; the LIGHTS follow a StoryClock
  * (paced view of local), so a fast scroll can't swing the slab dark ↔ lit
@@ -57,7 +58,7 @@ const _a = new THREE.Vector3()
 const _b = new THREE.Vector3()
 
 /**
- * Frame a box on the plane z = 0 (centre cx,cy; half extents hw,hh) inside a
+ * Frame a box on the plane z = 0 (center cx,cy; half extents hw,hh) inside a
  * screen rect (u across, v down, 0..1). The camera stands `d` from the box,
  * raised by an elevation angle `elev` (it looks down at the slab and its
  * light on the floor); the box is placed ACROSS by sliding the rig sideways
@@ -71,7 +72,7 @@ function fit(out: Shot, aspect: number, fov: number, b: Box, r: { u0: number; u1
   const halfW = halfH * aspect
   const d = halfH / tanV
   const sx = -((r.u0 + r.u1) / 2 - 0.5) * 2 * halfW
-  // where the box centre should sit on screen (ndc y), and the extra pitch that puts it there
+  // where the box center should sit on screen (ndc y), and the extra pitch that puts it there
   const ny = 1 - (r.v0 + r.v1)
   const delta = Math.atan(ny * tanV)
   const e = THREE.MathUtils.degToRad(elev)
@@ -136,12 +137,14 @@ export default function create(): Chapter {
       slab = buildSlab({ mobile: ctx.mobile, envMap: ctx.world.envMap })
       group.add(slab.group)
       slab.set({ level: 1, sweep: 0, standby: STANDBY, front: 0, frontX: -1 })
-      // a late font (or a swap) repaints the etch
-      document.fonts?.ready
-        .then(() => {
-          if (!slab.fontOk) slab.redraw()
-        })
-        .catch(() => {})
+      // a late font (or a swap) repaints the etch; then its canvas is freed
+      // once it's on the GPU (nothing redraws it after this)
+      const settle = () => {
+        if (!slab.fontOk) slab.redraw()
+        slab.release()
+      }
+      if (document.fonts?.ready) document.fonts.ready.then(settle, settle)
+      else settle()
       await nextFrame()
     },
 
@@ -190,7 +193,7 @@ export default function create(): Chapter {
       wp.bottom = '#000000'
       // the light field sits behind the slab (screen units: x = ndc.x·aspect)
       const aspect = W / Math.max(1, H)
-      proj.copy(slab.centre).project(ctx.camera)
+      proj.copy(slab.center).project(ctx.camera)
       const fx = Number.isFinite(proj.x) ? proj.x * aspect : 0.3
       const fy = Number.isFinite(proj.y) ? proj.y : 0
       _a.set(-SLAB.W / 2, SLAB_CY, 0).project(ctx.camera)
@@ -202,17 +205,15 @@ export default function create(): Chapter {
       wp.fieldA = DUSK.blush
       wp.fieldB = DUSK.periwinkle
       wp.fieldAngle = Math.PI / 2
-      // no world slits: vertical hairlines behind the slab read as cables
-      // hanging it (and a rotated slit angle is damped: it would visibly turn
-      // after the cut). The foyer's hairline is its own cove line instead
-      // (portrait and short screens: none — it would sit right under the chrome)
+      // no hairlines at all: world slits behind the slab read as cables
+      // hanging it, and a long wall line read as a tilted horizon slicing the
+      // frame (and ran through the panel). The slab is the room's one light.
       wp.slits = 0
-      slab.setCove(L.stack || H <= 500 ? 0 : (1 - close) * smoothstep(0.02, 0.12, q))
       // a highlight glides along the bevels on the walk up, and once more as the room closes
       wp.env = lerp(1, 0.62, close)
       wp.envTurn = -0.7 + 0.55 * ease.inOutCubic(segment(local, 0.02, 0.3)) + 0.4 * ease.inOutCubic(segment(local, 0.85, 0.98))
       // the key comes from above and BEHIND: it glints along the top bevel and
-      // the housing, never lights the frost's face (that would grey it)
+      // the housing, never lights the frost's face (that would gray it)
       wp.keyDir.set(-0.25, 0.9, -0.4)
       wp.key = lerp(1.0, 0.3, close)
       wp.fill = lerp(0.08, 0.03, close)

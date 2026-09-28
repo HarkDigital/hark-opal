@@ -9,7 +9,7 @@ import * as THREE from 'three'
  * exactly because the reflection is traced from uCam every frame.
  *
  *   face: a lit rectangle in the plane z = uFaceZ, x ∈ [x0, x1], y ∈ [y0, y1]
- *   lines: up to two vertical hairlines (x, z, top y, strength) with colours
+ *   lines: up to two vertical hairlines (x, z, top y, strength) with colors
  *   run: one hairline lying on the floor along x (its soft spill on the stone)
  */
 
@@ -109,7 +109,7 @@ export interface FloorLight {
   }
 }
 
-/** size: the plane's side (world); centred at (cx, cz) on the floor y. */
+/** size: the plane's side (world); centered at (cx, cz) on the floor y. */
 export function floorLight(size: number, cx: number, cz: number, y: number): FloorLight {
   const u = {
     uCam: { value: new THREE.Vector3() },

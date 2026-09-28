@@ -14,8 +14,11 @@ import { storeKey } from './prefs'
  * (createChrome wires onChange to the scene hold). Tablets and laptops in
  * landscape are taller than 500px and never see it.
  *
- * It is a suggestion, never a lock (WCAG 1.3.4): "Continue anyway" releases
- * it for the rest of the session. While it shows, the skip link and the
+ * It is a suggestion, never a lock (WCAG 1.3.4): "Continue anyway" (or
+ * Escape, as a dialog promises) releases it for the rest of the session. It
+ * speaks once: focus moved to the card reads its name and description; the
+ * live region only speaks when focus stayed in the copy layer / on the skip
+ * link (a reader who never lands on the card). While it shows, the skip link and the
  * linear copy layer in #track stay reachable, and their focus pills paint
  * above the card (it sits at z 25: over the chrome (10) and the stages (5),
  * under #track:focus-within (30) and the skip link (120)); only the chrome
@@ -89,6 +92,7 @@ let gate: {
   sync: () => void
   listeners: ((shown: boolean) => void)[]
   on: () => boolean
+  onKey: (e: KeyboardEvent) => void
 } | null = null
 
 export function mountRotateGate(onChange?: (shown: boolean) => void) {
@@ -145,19 +149,32 @@ export function mountRotateGate(onChange?: (shown: boolean) => void) {
       const a = document.activeElement
       const keep = a instanceof HTMLElement && a !== document.body && (a.closest('#track') || a.matches('.skip-link'))
       if (!keep) el.focus({ preventScroll: true })
+      document.addEventListener('keydown', onKey)
       // the phone turns upright once, after the card is on screen
       el.classList.remove('is-turned')
       void el.offsetWidth
       turnTimer = window.setTimeout(() => on && el.classList.add('is-turned'), 420)
-      // a live region only speaks when its text changes after it is shown
-      window.setTimeout(() => {
-        if (on) live.textContent = 'Turn your phone upright. This gallery is hung for portrait.'
-      }, 60)
+      // announce ONCE: focus on the card already reads its label and
+      // description, so the live region only speaks for a reader whose focus
+      // stayed in the copy layer or on the skip link (it speaks when its text
+      // changes after it is shown)
+      if (keep)
+        window.setTimeout(() => {
+          if (on) live.textContent = 'Turn your phone upright. This gallery is hung for portrait.'
+        }, 60)
     } else {
       releaseInert('rotate')
+      document.removeEventListener('keydown', onKey)
       live.textContent = ''
     }
     for (const fn of listeners) fn(on)
+  }
+
+  // Escape dismisses it, like "Continue anyway" (a dialog should close on Escape)
+  function onKey(e: KeyboardEvent) {
+    if (!on || e.key !== 'Escape' || e.defaultPrevented) return
+    e.preventDefault()
+    go.click()
   }
 
   go.addEventListener('click', () => {
@@ -174,7 +191,7 @@ export function mountRotateGate(onChange?: (shown: boolean) => void) {
 
   if (typeof mq.addEventListener === 'function') mq.addEventListener('change', sync)
   else mq.addListener?.(sync)
-  gate = { el, mq, sync, listeners, on: () => on }
+  gate = { el, mq, sync, listeners, on: () => on, onKey }
   sync()
 }
 
@@ -185,6 +202,7 @@ export function unmountRotateGate() {
   if (typeof gate.mq.removeEventListener === 'function') gate.mq.removeEventListener('change', gate.sync)
   else gate.mq.removeListener?.(gate.sync)
   gate.el.remove()
+  document.removeEventListener('keydown', gate.onKey)
   document.documentElement.classList.remove('is-rotate')
   releaseInert('rotate')
   if (was) for (const fn of gate.listeners) fn(false)

@@ -8,7 +8,7 @@ import { storeKey } from './prefs'
  *   room     the gallery's own air: soft filtered noise, dark and wide (two
  *            decorrelated channels), breathing very slowly — barely there
  *   pad      a slow evolving pad in warm major-7th voicings: each room of the
- *            story has its own pair of chords and its own COLOUR (how open
+ *            story has its own pair of chords and its own COLOR (how open
  *            the low-pass is, how loud the pad and the room, how much high
  *            shimmer) — Threshold Dbmaj9, Light Boxes Gbmaj9, Spectrum the
  *            brightest (Abmaj9), Afterglow soft Ebmaj9, Night Watch low and
@@ -19,7 +19,7 @@ import { storeKey } from './prefs'
  *   blip()   a glassy chime: a few inharmonic sine partials (a struck glass
  *            rod), tuned to the room's chord; `pitch` walks up its tones
  *   cut()    a soft swell: air rising through a band-pass and the pad opening
- *            for a moment, then the next room's colour settles in
+ *            for a moment, then the next room's color settles in
  *   tone()   a pure sine a chapter may ask for (also via 'hark:tone' events)
  *
  * CPU: chords are scheduled ~0.4 s ahead by a 100 ms lookahead timer (never
@@ -48,10 +48,10 @@ function stored(): boolean | null {
   }
 }
 
-interface Colour {
+interface Color {
   /** two chords (MIDI), alternating */
   chords: number[][]
-  /** pad low-pass centre (Hz) */
+  /** pad low-pass center (Hz) */
   warmth: number
   /** pad level 0..~1.3 */
   pad: number
@@ -61,14 +61,14 @@ interface Colour {
   air: number
 }
 
-const COLOURS: Record<string, Colour> = {
+const COLORS: Record<string, Color> = {
   // Dbmaj9 ↔ Gbmaj9/Db
   hero: { chords: [[49, 56, 60, 63, 65], [49, 54, 58, 61, 65]], warmth: 900, pad: 1, room: 1, air: 0.35 },
   // Gbmaj9 ↔ Dbmaj7/F
   work: { chords: [[42, 53, 56, 58, 61], [41, 49, 53, 56, 60]], warmth: 980, pad: 1, room: 0.9, air: 0.4 },
   // Abmaj9 ↔ Dbmaj9: the brightest room
   services: { chords: [[44, 51, 55, 58, 60], [49, 56, 60, 63, 65]], warmth: 1250, pad: 1.05, room: 0.85, air: 0.6 },
-  // Ebmaj9/Bb ↔ Abmaj7/Eb: soft, a colour field
+  // Ebmaj9/Bb ↔ Abmaj7/Eb: soft, a color field
   voices: { chords: [[46, 51, 55, 58, 62], [51, 55, 56, 60, 63]], warmth: 820, pad: 1.15, room: 0.8, air: 0.3 },
   // Gbmaj7#11: low and cool; the pad thins, the room comes forward
   shield: { chords: [[42, 49, 53, 60, 65], [42, 49, 53, 58, 60]], warmth: 560, pad: 0.6, room: 1.4, air: 0.1 },
@@ -138,9 +138,9 @@ export class Sound {
 
   private chapter = 'hero'
   private slotIds: string[] = []
-  /** the colour the pad is playing */
-  private colourKey = ''
-  private colour: Colour = COLOURS.hero
+  /** the color the pad is playing */
+  private colorKey = ''
+  private color: Color = COLORS.hero
   /** the room the story is in, and since when (audio clock) */
   private pendingKey = 'hero'
   private pendingSince = 0
@@ -191,7 +191,7 @@ export class Sound {
     }
   }
 
-  /** Follow the story: each room recolours the pad (once it holds); scroll speed stirs the air. */
+  /** Follow the story: each room recolors the pad (once it holds); scroll speed stirs the air. */
   update(frame: Frame, state: EngineState) {
     const slot = state.slots[state.index]
     if (slot) this.chapter = slot.def.id
@@ -203,7 +203,7 @@ export class Sound {
       this.pendingKey = this.chapter
       this.pendingSince = now
     }
-    if (this.pendingKey !== this.colourKey && now - this.pendingSince > SETTLE_S) this.setColour(this.pendingKey, ctx, 1.4, true)
+    if (this.pendingKey !== this.colorKey && now - this.pendingSince > SETTLE_S) this.setColor(this.pendingKey, ctx, 1.4, true)
     // a little more air while the gallery slides past (≈ 8×/s)
     if (now - this.lastSpeedAt > 0.12) {
       this.lastSpeedAt = now
@@ -215,7 +215,7 @@ export class Sound {
     }
   }
 
-  /** A chapter cut: a soft swell of air and light, then the next room's colour. */
+  /** A chapter cut: a soft swell of air and light, then the next room's color. */
   cut(_from: number, to: number) {
     const ctx = this.live()
     if (!ctx) return
@@ -250,8 +250,8 @@ export class Sound {
     const f = this.padLp.frequency
     f.cancelScheduledValues(now)
     f.setValueAtTime(f.value, now)
-    f.setTargetAtTime(this.colour.warmth * 1.8, now, 0.35)
-    f.setTargetAtTime(this.colour.warmth, now + 0.9, 0.9)
+    f.setTargetAtTime(this.color.warmth * 1.8, now, 0.35)
+    f.setTargetAtTime(this.color.warmth, now + 0.9, 0.9)
   }
 
   /** A glassy chime (nav, toggles), tuned to the room. `pitch` walks up its tones. No-op while off. */
@@ -261,7 +261,7 @@ export class Sound {
     const now = ctx.currentTime
     if (now - this.lastBlip < 0.08) return
     this.lastBlip = now
-    const tones = [...new Set(this.colour.chords[0].map(m => ((m % 12) + 12) % 12))].sort((a, b) => a - b)
+    const tones = [...new Set(this.color.chords[0].map(m => ((m % 12) + 12) % 12))].sort((a, b) => a - b)
     const p = Math.max(0, Math.min(24, Math.round(pitch)))
     const pc = tones[p % tones.length]
     const oct = Math.floor(p / tones.length)
@@ -284,7 +284,7 @@ export class Sound {
   }
 
   private airTarget() {
-    return this.colour.air * AIR_LEVEL * (1 + 1.2 * this.speed)
+    return this.color.air * AIR_LEVEL * (1 + 1.2 * this.speed)
   }
 
   private setEnabled(on: boolean) {
@@ -319,8 +319,8 @@ export class Sound {
           this.master.gain.setValueAtTime(this.master.gain.value, t)
           this.master.gain.setTargetAtTime(MASTER_LEVEL, t, 0.6)
           this.pendingKey = this.chapter
-          this.colourKey = ''
-          this.setColour(this.chapter, ctx, 0.4, false)
+          this.colorKey = ''
+          this.setColor(this.chapter, ctx, 0.4, false)
           this.applyTone()
           // never catch up on chords missed while hidden: pick the pad up from here
           if (this.nextChordAt < t) this.nextChordAt = t + 0.05
@@ -508,7 +508,7 @@ export class Sound {
     // PAD: one bus, one slow-breathing low-pass (the chords feed it)
     this.padLp = ctx.createBiquadFilter()
     this.padLp.type = 'lowpass'
-    this.padLp.frequency.value = this.colour.warmth
+    this.padLp.frequency.value = this.color.warmth
     this.padLp.Q.value = 0.5
     const sweep = ctx.createOscillator()
     sweep.frequency.value = 0.037
@@ -532,11 +532,11 @@ export class Sound {
     this.toneOsc.start()
   }
 
-  /** Recolour the pad for a room; `early` brings the next chord in soon (the change is heard). */
-  private setColour(id: string, ctx: AudioContext, tc: number, early: boolean) {
-    const c = COLOURS[id] ?? COLOURS.hero
-    this.colourKey = id
-    this.colour = c
+  /** Recolor the pad for a room; `early` brings the next chord in soon (the change is heard). */
+  private setColor(id: string, ctx: AudioContext, tc: number, early: boolean) {
+    const c = COLORS[id] ?? COLORS.hero
+    this.colorKey = id
+    this.color = c
     const now = ctx.currentTime
     this.room.gain.setTargetAtTime(c.room * ROOM_LEVEL, now, tc)
     this.pad.gain.setTargetAtTime(c.pad * PAD_LEVEL, now, tc * 1.4)
@@ -572,8 +572,8 @@ export class Sound {
     // a stalled timer (a long task) must not dump a backlog at once
     if (this.nextChordAt < now - 0.5) this.nextChordAt = now + 0.05
     while (this.nextChordAt < horizon) {
-      const chords = this.colour.chords
-      this.chord(ctx, this.nextChordAt, chords[this.chordIndex % chords.length], this.colour.air)
+      const chords = this.color.chords
+      this.chord(ctx, this.nextChordAt, chords[this.chordIndex % chords.length], this.color.air)
       this.chordStartedAt = this.nextChordAt
       this.chordIndex = (this.chordIndex + 1) % chords.length
       this.nextChordAt += CHORD_S

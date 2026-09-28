@@ -13,10 +13,12 @@
   max-width: 7.4em;
 }
 
-/* the service card: smoked glass, its top hairline lit in the fin's colour.
-   All eleven services sit stacked in ONE grid cell, so the card is always
-   as tall as the tallest (it never jumps) without measuring; only the shown
-   one is visible. Opaque plate, no backdrop blur (GPU cost). */
+/* the service card: smoked glass, its top hairline lit in the fin's color.
+   All eleven services sit stacked in ONE grid cell inside .sv-clip; each is
+   top-aligned, so the index row and the title sit at one fixed place for
+   every service. index.ts pins the card's top edge where the tallest
+   service puts it and glides .sv-clip's height to the service shown (the
+   plate hugs its words; no empty band). Opaque plate, no backdrop blur. */
 .sv-card {
   position: absolute;
   left: var(--gutter);
@@ -35,15 +37,21 @@
   opacity: 0.9;
   transition: background 0.4s ease;
 }
+.sv-clip {
+  display: grid;
+  min-width: 0;
+  overflow: hidden;
+  transition: height 0.3s cubic-bezier(0.3, 0.7, 0.3, 1);
+}
 .sv-body {
   grid-area: 1 / 1;
+  align-self: start;
   min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
 .sv-row {
-  margin-bottom: auto;
   display: flex;
   align-items: center;
   gap: 14px;
@@ -161,8 +169,10 @@
     gap: 4px;
     margin-top: 0;
   }
+  /* the house 10.5 px floor: win the room back with padding and tracking */
   .sv-tags .hud-tag {
-    padding: 2px 8px;
-    font-size: 9.5px;
+    padding: 2px 6px;
+    font-size: 10.5px;
+    letter-spacing: 0.06em;
   }
 }

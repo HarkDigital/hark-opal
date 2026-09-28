@@ -1,28 +1,34 @@
 import * as THREE from 'three'
 import { DUSK } from '../../kit/opal'
-import { frosted, pane, polished } from '../../kit/glass'
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
+import { frosted, pane, polished, smoothExtrude } from '../../kit/glass'
 import { placeholderTexture } from '../../kit/images'
 
 /*
  * LIGHT BOXES — the set pieces of the work chapter (see index.ts for the story).
  *
- *   lightBox()   a museum light box: a crisp print in a slim black frame, set on
- *                a thick FROSTED OPAL glass face whose band round the print glows
- *                with the box's own light (a gradient card inside an open black
- *                tray), polished bevels, a halo on the wall, a pool on the floor,
- *                and a small glass wall label under it with the name and
- *                industry POLISHED into it (bars of light behind each line: the
- *                frost glows soft, the letters show the bar crisp).
+ *   lightBox()   a museum light box in glass: a thick FROSTED slab held off the
+ *                wall on four polished steel standoffs, a window cut clean
+ *                through it (its polished inner walls catch a hairline of
+ *                light), the print on a black mount board just behind the
+ *                window, and inside the shallow black case two tubes of the
+ *                box's light along its long edges — two soft bars through the
+ *                frost, dimmer glass between them, the polished outer bevels
+ *                lit by them and by the studio. A faint spill on the wall, a
+ *                pool on the floor, and a small glass wall label under it with
+ *                the name and industry POLISHED into it (bars of light behind
+ *                each line: the frost glows soft, the letters show the bar crisp).
  *   board()      the long frosted wall-text panel at the end of the wall: the
  *                nine other sites polished into it, one bar of light per name
- *                (the focused name's bar burns brighter).
+ *                (decoration: the chapter's card lists them as real links).
  *
  * Glass buffer rules (three's transmission pass renders the OPAQUE list once):
- *   - prints and their frames are hidden from it (frameOnly): the frost round a
- *     print must see the light BEHIND it, not the print in front of it
- *   - the light cards, halos and pools are opaque-list (additive), so the
- *     frost picks them up
- *   - one shared frosted material for the six box faces; the labels and the
+ *   - prints, mounts, standoffs and cases are hidden from it (frameOnly): the
+ *     frost round a print must see the light BEHIND it, not what's in front
+ *   - the tubes' light cards are drawn ONLY into it (glassOnly): never seen
+ *     bare, only through glass
+ *   - halos and pools are opaque-list (additive), so the frost picks them up
+ *   - one shared material set for the six box faces; the labels and the
  *     board each carry their own roughness (etch) map
  */
 
@@ -30,21 +36,33 @@ export type Light = { a: string; b: string; angle: number }
 type IsFrame = (rt: THREE.WebGLRenderTarget | null) => boolean
 
 export const hex = (c: string) => (c in DUSK ? DUSK[c as keyof typeof DUSK] : c)
+const lerp = (a: number, b: number, t: number) => a + (b - a) * t
 
 // ---- dimensions (world units ≈ metres; wall face z = 0, floor y = 0)
 export const PRINT_W = 2.2
 export const PRINT_H = 1.375 // 16:10, the screenshots' aspect
-const PF = 0.034 // the print's slim black frame
-const BAND = 0.3 // the frosted opal band round the print
-export const GW = PRINT_W + 2 * PF + 2 * BAND
-export const GH = PRINT_H + 2 * PF + 2 * BAND
-const GD = 0.06 // glass slab depth (+ bevels)
-const GB = 0.026
+const MOUNT = 0.045 // the black mount board seen round the print, inside the window
+/** the window cut through the glass (the print sits behind it) */
+const WIN_W = PRINT_W + 2 * MOUNT
+const WIN_H = PRINT_H + 2 * MOUNT
+const BAND = 0.2 // frosted glass round the window
+const BAND_B = 0.24 // a little more below (a gallery mat is bottom-weighted)
+const GD = 0.08 // glass slab depth, cap to cap (+ the bevels on both faces)
+const GB = 0.04
+/** the bevel's reach past the slab's outline (kit smoothExtrude: 0.85 × bevel) */
+const GBS = GB * 0.85
+/** the glass's outer size, bevels included */
+export const GW = WIN_W + 2 * BAND + 2 * GBS
+export const GH = WIN_H + BAND + BAND_B + 2 * GBS
+/** the window's centre sits above the glass's centre (bottom-weighted band) */
+const WIN_Y = (BAND_B - BAND) / 2
 const TRAY_Z0 = 0.02
-const TRAY_D = 0.15
-const GLASS_Z = TRAY_Z0 + TRAY_D + GD / 2 + GB + 0.004
+const TRAY_D = 0.13
+const GLASS_Z = TRAY_Z0 + TRAY_D + GD / 2 + GB + 0.03
 /** front face of a box's glass */
 export const FACE_Z = GLASS_Z + GD / 2 + GB
+/** back face of a box's glass (the print is mounted just behind it) */
+const BACK_Z = GLASS_Z - GD / 2 - GB
 /** the wall label */
 export const LABEL_W = 1.12
 export const LABEL_H = 0.32
@@ -60,11 +78,13 @@ export const LABEL_Y = -GH / 2 - LABEL_GAP - LABEL_H / 2
 
 /** screenshots stay under the bloom threshold */
 const PRINT_MAX = 0.85
-/** a dimmed box keeps its print faintly readable and a breath of glow */
-const PRINT_DIM = 0.3
+/** a dimmed box ahead keeps its print faintly readable and a breath of glow… */
+export const PRINT_DIM = 0.3
+/** …one the camera has passed (it sits behind the card) all but goes dark */
+export const PRINT_BEHIND = 0.025
 const CARD_DIM = 0.05
-/** the frosted band's mean luminance at full light (linear) */
-const BAND_LUM = 0.3
+/** the light inside a box: its tubes' luminance at full light (linear) */
+const TUBE_LUM = 0.28
 
 export const FONT_SANS = "'Hanken Grotesk Variable', 'Hanken Grotesk', system-ui, sans-serif"
 export const FONT_MONO = "'Red Hat Mono Variable', 'Red Hat Mono', ui-monospace, monospace"
@@ -173,6 +193,25 @@ export function etchCanvas(w: number, h: number, res: number) {
     commit() {
       tex.needsUpdate = true
     },
+    /** give a released canvas its size back before a redraw (same size: the GPU texture is reused) */
+    open() {
+      tex.onUpdate = null
+      if (canvas.width !== W || canvas.height !== H) {
+        canvas.width = W
+        canvas.height = H
+      }
+    },
+    /**
+     * free the canvas once this drawing is on the GPU (perf-05: the etch
+     * canvases held MBs after upload); open() before drawing again
+     */
+    release() {
+      tex.onUpdate = () => {
+        tex.onUpdate = null
+        canvas.width = canvas.height = 1
+      }
+      tex.needsUpdate = true
+    },
   }
 }
 type Etch = ReturnType<typeof etchCanvas>
@@ -183,38 +222,55 @@ const CARD_VERT = /* glsl */ `
   varying vec2 vUv;
   void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }
 `
+/*
+ * The light inside a box: two lit tubes laid along its long edges, behind the
+ * band above and below the window (a real light box's fixtures), in the
+ * box's gel (A → B across the angle), each with a near-white core, over a low
+ * floor of light that falls away past the glass's rim. Through the frost the
+ * tubes read as two soft bars of light with dimmer glass between them — light
+ * WITH A SOURCE behind the glass, not an even pastel band; through the
+ * polished bevels and the window's inner walls they read crisper. Only ever
+ * seen through the glass (glassOnly).
+ */
 const BOX_FRAG = /* glsl */ `
   uniform vec3 uA, uB, uCore;
-  uniform float uLevel, uHdr, uAngle, uBand;
-  uniform vec2 uSize, uPrint;
+  uniform float uLevel, uHdr, uAngle;
+  uniform vec2 uSize, uGlass;
+  /** the two tubes: y (top, bottom) and their half length */
+  uniform vec3 uTube;
   varying vec2 vUv;
   void main() {
     vec2 p = (vUv - 0.5) * uSize;
     vec2 dir = vec2(sin(uAngle), cos(uAngle));
-    float g = smoothstep(-0.5, 0.5, dot(vUv - 0.5, dir));
+    float g = smoothstep(-0.5, 0.5, dot(p / uGlass * 0.5, dir));
     vec3 col = mix(uA, uB, g);
-    // 0 at the print's edge, 1 at the glass rim: the light is hottest (and
-    // milkiest) close round the print and falls away gently toward the rim
-    vec2 q = max(abs(p) - uPrint, 0.0);
-    float d = length(q) / uBand;
-    float fall = mix(1.0, 0.55, smoothstep(0.0, 1.3, d));
-    float core = exp(-d * d * 2.5) * 0.18;
-    vec2 e = smoothstep(vec2(0.0), vec2(0.35), 0.5 * uSize - abs(p));
-    gl_FragColor = vec4((col * fall + uCore * core) * uHdr * uLevel * e.x * e.y, 1.0);
+    float along = 1.0 - smoothstep(uTube.z - 0.22, uTube.z + 0.02, abs(p.x));
+    float d0 = p.y - uTube.x;
+    float d1 = p.y - uTube.y;
+    // (no hairline: a polished bevel refracts a thin bright line into dashes)
+    float core = (exp(-d0 * d0 * 420.0) + exp(-d1 * d1 * 420.0)) * along;
+    float spill = (exp(-d0 * d0 * 30.0) + exp(-d1 * d1 * 30.0)) * mix(0.35, 1.0, along);
+    // a low floor inside the box, gone a little past the glass's rim
+    vec2 q = max(abs(p) - uGlass + 0.12, 0.0);
+    float floorL = 0.1 * exp(-dot(q, q) * 40.0);
+    vec3 c = col * (floorL + 0.42 * spill) + mix(col, uCore, 0.25) * 1.0 * core;
+    gl_FragColor = vec4(c * uHdr * uLevel, 1.0);
   }
 `
 interface BoxLight extends THREE.Mesh {
   setLevel(v: number): void
 }
-/** a box's two colours, a little milky (opal glass is never a pure gel) */
-const OPAL_MILK = 0.15
+/** a box's two colours, a breath of milk (opal glass is never a pure gel) */
+const OPAL_MILK = 0.08
 function boxColors(light: Light) {
   const warm = new THREE.Color(hex('warm'))
   return [new THREE.Color(hex(light.a)).lerp(warm, OPAL_MILK), new THREE.Color(hex(light.b)).lerp(warm, OPAL_MILK)]
 }
-/** The light inside a box: its colours, hottest and milkiest round the print (only ever seen through the frost). */
+/** The light inside a box: two tubes along its long edges in the box's gel (only ever seen through the glass). */
 function boxLight(w: number, h: number, light: Light, hdr: number): BoxLight {
   const [ca, cb] = boxColors(light)
+  const top = WIN_Y + WIN_H / 2
+  const bot = WIN_Y - WIN_H / 2
   const mat = new THREE.ShaderMaterial({
     uniforms: {
       uA: { value: ca },
@@ -223,9 +279,12 @@ function boxLight(w: number, h: number, light: Light, hdr: number): BoxLight {
       uLevel: { value: 1 },
       uHdr: { value: hdr },
       uAngle: { value: light.angle },
-      uBand: { value: BAND + PF },
       uSize: { value: new THREE.Vector2(w, h) },
-      uPrint: { value: new THREE.Vector2(PRINT_W / 2, PRINT_H / 2) },
+      uGlass: { value: new THREE.Vector2(GW / 2, GH / 2) },
+      // in the band above and below the window, nearer the rim than the window
+      // (the window's polished inner walls would refract a near tube into a
+      // flare over the print's edge); they stop short of the standoffs
+      uTube: { value: new THREE.Vector3(lerp(top, GH / 2 - GBS, 0.64), lerp(bot, -GH / 2 + GBS, 0.64), GW / 2 - 0.2) },
     },
     vertexShader: CARD_VERT,
     fragmentShader: BOX_FRAG,
@@ -398,23 +457,44 @@ export interface Shared {
    * small or off-screen): keeps ≤ 3–4 real glass panes in view at a time
    */
   far: THREE.MeshStandardMaterial
-  /** satin black print frames (catch the studio strips as hairlines) */
-  frame: THREE.MeshStandardMaterial
-  /** the six box faces: frosted caps, polished bevels */
-  face: [THREE.MeshPhysicalMaterial, THREE.MeshPhysicalMaterial]
-  /** frosted caps for etched panes (clone per etch map) + polished bevels */
+  /** the black mount board behind each print (satin, seen round it in the window) */
+  mount: THREE.MeshStandardMaterial
+  /** polished steel standoffs holding the glass off the wall */
+  steel: THREE.MeshStandardMaterial
+  /** the six box faces: frosted caps, polished outer bevels, the window's polished inner walls */
+  face: [THREE.MeshPhysicalMaterial, THREE.MeshPhysicalMaterial, THREE.MeshPhysicalMaterial]
+  /**
+   * frosted caps for etched panes (clone per etch map) + their polished bevels
+   * (thin: a longer optical path refracts the lettering below into a row of
+   * dots along the top bevel)
+   */
   etchCaps: THREE.MeshPhysicalMaterial
   edges: THREE.MeshPhysicalMaterial
+  /**
+   * every material with its own envMap: they ignore the world's envTurn, so
+   * the chapter turns their envMapRotation itself (highlights glide along the
+   * bevels and standoffs as you walk)
+   */
+  envMats: (THREE.MeshStandardMaterial | THREE.MeshPhysicalMaterial)[]
 }
 
 export function sharedMaterials(isFrame: IsFrame, envMap: THREE.Texture | null, mobile: boolean): Shared {
   const black = new THREE.MeshStandardMaterial({ color: 0x050407, roughness: 0.55, metalness: 0.1, envMap, envMapIntensity: 0.25 })
   const far = new THREE.MeshStandardMaterial({ color: 0x0c0a10, roughness: 0.42, metalness: 0, envMap, envMapIntensity: 0.3 })
-  const frame = new THREE.MeshStandardMaterial({ color: 0x0a090d, roughness: 0.26, metalness: 0.55, envMap, envMapIntensity: 0.9 })
-  const caps = frosted({ frost: 0.5, thickness: 0.12 }).clone()
+  const mount = new THREE.MeshStandardMaterial({ color: 0x08070b, roughness: 0.6, metalness: 0, envMap, envMapIntensity: 0.15 })
+  // satin steel: broad enough a sheen to read at a dozen pixels (polished reads as a black hole)
+  const steel = new THREE.MeshStandardMaterial({ color: 0xe4e0ea, roughness: 0.26, metalness: 1, envMap, envMapIntensity: 2 })
+  // a clearer frost than the labels: the tubes behind read as soft bars
+  const caps = frosted({ frost: 0.4, thickness: 0.16 }).clone()
   caps.envMap = envMap
-  caps.envMapIntensity = 0.22
-  const edges = polished({ thickness: 0.06 }).clone()
+  caps.envMapIntensity = 0.3
+  const faceEdges = polished({ thickness: 0.075 }).clone()
+  faceEdges.envMap = envMap
+  faceEdges.envMapIntensity = 3
+  const winEdges = polished({ thickness: 0.05 }).clone()
+  winEdges.envMap = envMap
+  winEdges.envMapIntensity = 0.7
+  const edges = polished({ thickness: 0.035 }).clone()
   edges.envMap = envMap
   edges.envMapIntensity = 1
   const etchCaps = frosted({ frost: 0.48, thickness: 0.05 }).clone()
@@ -426,11 +506,118 @@ export function sharedMaterials(isFrame: IsFrame, envMap: THREE.Texture | null, 
     mobile,
     tray: black,
     far,
-    frame,
-    face: [caps, edges],
+    mount,
+    steel,
+    face: [caps, faceEdges, winEdges],
     etchCaps,
     edges,
+    // (not the labels' and board's thin bevels: a strip swept onto a sub-pixel
+    // bevel breaks into a row of dots)
+    envMats: [caps, faceEdges, winEdges, steel, black, far],
   }
+}
+
+/** A frosted slab with a window cut clean through it (w × h outline, bevels added round it; window hw × hh at y = wy). */
+function windowPane(w: number, h: number, hw: number, hh: number, wy: number, o: { depth: number; bevel: number; radius: number }) {
+  const rect = (p: THREE.Path, x: number, y: number, rw: number, rh: number, r: number, cw: boolean) => {
+    const pts: [number, number][] = [
+      [x + r, y],
+      [x + rw - r, y],
+      [x + rw, y + r],
+      [x + rw, y + rh - r],
+      [x + rw - r, y + rh],
+      [x + r, y + rh],
+      [x, y + rh - r],
+      [x, y + r],
+    ]
+    const ctl: [number, number][] = [
+      [x + rw, y],
+      [x + rw, y + rh],
+      [x, y + rh],
+      [x, y],
+    ]
+    const seq = cw ? [...pts].reverse() : pts
+    const cseq = cw ? [ctl[2], ctl[1], ctl[0], ctl[3]] : ctl
+    p.moveTo(seq[0][0], seq[0][1])
+    for (let i = 0; i < 4; i++) {
+      p.lineTo(seq[i * 2 + 1][0], seq[i * 2 + 1][1])
+      const next = seq[(i * 2 + 2) % 8]
+      p.quadraticCurveTo(cseq[i][0], cseq[i][1], next[0], next[1])
+    }
+  }
+  const s = new THREE.Shape()
+  rect(s, -w / 2, -h / 2, w, h, o.radius, false)
+  const hole = new THREE.Path()
+  rect(hole, -hw / 2, wy - hh / 2, hw, hh, 0.006, true)
+  s.holes.push(hole)
+  const g = smoothExtrude(s, { depth: o.depth, bevel: o.bevel, curveSegments: 6 })
+  // split the side walls: the outer rim (group 1) and the window's inner walls
+  // (group 2, their own quieter material: a hot glint there sits over the print)
+  const pos = g.getAttribute('position') as THREE.BufferAttribute
+  const side = g.groups.find(gr => gr.materialIndex === 1)
+  if (!side || g.index) return g
+  const inner = (i: number) => {
+    let cx = 0
+    let cy = 0
+    for (let k = 0; k < 3; k++) {
+      cx += pos.getX(i + k) / 3
+      cy += pos.getY(i + k) / 3
+    }
+    return Math.abs(cx) < hw / 2 + 0.005 && Math.abs(cy - wy) < hh / 2 + 0.005
+  }
+  const names = Object.keys(g.attributes)
+  const src = names.map(n => g.getAttribute(n) as THREE.BufferAttribute)
+  const copy = src.map(a => (a.array as Float32Array).slice())
+  const outerTris: number[] = []
+  const innerTris: number[] = []
+  for (let i = side.start; i < side.start + side.count; i += 3) (inner(i) ? innerTris : outerTris).push(i)
+  let w0 = side.start
+  for (const i of [...outerTris, ...innerTris]) {
+    src.forEach((a, n) => {
+      const sz = a.itemSize
+      for (let k = 0; k < 3 * sz; k++) (a.array as Float32Array)[w0 * sz + k] = copy[n][i * sz + k]
+    })
+    w0 += 3
+  }
+  src.forEach(a => (a.needsUpdate = true))
+  const others = g.groups.filter(gr => gr !== side)
+  g.clearGroups()
+  for (const gr of others) g.addGroup(gr.start, gr.count, gr.materialIndex)
+  g.addGroup(side.start, outerTris.length * 3, 1)
+  g.addGroup(side.start + outerTris.length * 3, innerTris.length * 3, 2)
+  return g
+}
+
+/** four polished standoff caps on the glass (their barrels run back to the wall behind it): one geometry */
+let standoffGeo: THREE.BufferGeometry | null = null
+function standoffs(z0: number, z1: number) {
+  if (standoffGeo) return standoffGeo
+  const parts: THREE.BufferGeometry[] = []
+  const inset = 0.105
+  for (const sx of [-1, 1])
+    for (const sy of [-1, 1]) {
+      const x = sx * (GW / 2 - inset)
+      const y = sy * (GH / 2 - inset)
+      // the cap: a low steel dome on a thin collar (a dome catches the studio
+      // strips as a highlight; a flat disc reads as a hole)
+      const collar = new THREE.CylinderGeometry(0.036, 0.036, 0.008, 24, 1)
+      collar.rotateX(Math.PI / 2)
+      collar.translate(x, y, z1 + 0.004)
+      const cap = new THREE.SphereGeometry(0.034, 24, 8, 0, Math.PI * 2, 0, Math.PI / 2)
+      cap.rotateX(Math.PI / 2)
+      cap.scale(1, 1, 0.55)
+      cap.translate(x, y, z1 + 0.008)
+      const barrel = new THREE.CylinderGeometry(0.014, 0.014, z1 - z0, 10, 1, true)
+      barrel.rotateX(Math.PI / 2)
+      barrel.translate(x, y, (z0 + z1) / 2)
+      for (const g of [collar, cap, barrel]) {
+        parts.push(g.toNonIndexed())
+        g.dispose()
+      }
+    }
+  standoffGeo = mergeGeometries(parts)
+  for (const p of parts) p.dispose()
+  return standoffGeo
 }
 
 /**
@@ -474,50 +661,62 @@ function tray(w: number, h: number, d: number, S: Shared) {
 export interface LightBox {
   root: THREE.Group
   print: THREE.MeshBasicMaterial
-  /** the label's etch (drawn once the fonts are in) */
-  drawLabel(): void
-  setLevel(v: number): void
+  /** the label's etch (drawn once the fonts are in; `release` frees its canvas after the upload) */
+  drawLabel(release?: boolean): void
+  /**
+   * 0..1 how lit the box is; `floor` = how much of the print (and label) a
+   * dark box keeps (PRINT_DIM ahead of the camera, PRINT_BEHIND once passed)
+   */
+  setLevel(v: number, floor?: number): void
   /** set the print texture */
   setPrint(t: THREE.Texture): void
   /** far from the camera: cheap stand-in glass */
   setFar(far: boolean): void
 }
 
-/** A light box centred at height `y` (the caller places root.x; root.y = y). */
-export function lightBox(o: { name: string; industry: string; light: Light; S: Shared; y: number; hdr?: number }): LightBox {
+/**
+ * A light box centred at height `y` (the caller places root.x; root.y = y):
+ * a thick frosted glass slab held off the wall on four polished standoffs,
+ * a window cut clean through it, the print on a black mount board behind the
+ * window, two tubes of the box's light behind the glass.
+ */
+export function lightBox(o: { name: string; industry: string; light: Light; S: Shared; y: number }): LightBox {
   const { S, light } = o
   const root = new THREE.Group()
-  // tray + the light inside it
-  root.add(tray(GW - 0.05, GH - 0.05, TRAY_D, S))
+  // the shallow black case behind the glass (a shadow round it) + the light inside
+  root.add(tray(GW - 0.16, GH - 0.16, TRAY_D, S))
   // every box glows at about the same brightness whatever its colours (ice is
-  // nearly white, violet deep): scale the card to a common mean luminance
+  // nearly white, violet deep): scale the light to a common tube luminance
   const [ca, cb] = boxColors(light)
   const lum = (c: THREE.Color) => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b
-  const hdr = Math.min(0.8, (o.hdr ?? BAND_LUM) / Math.max(0.1, (lum(ca) + lum(cb)) / 2))
+  const hdr = Math.min(1.2, TUBE_LUM / Math.max(0.1, (lum(ca) + lum(cb)) / 2))
   const card = boxLight(GW + 0.9, GH + 0.9, light, hdr)
   card.position.z = TRAY_Z0 + 0.03
   glassOnly(card, S.isFrame)
   root.add(card)
-  // the frosted opal face, polished bevels
-  const face = pane(GW, GH, { depth: GD, bevel: GB, radius: 0.028 })
-  face.material = S.face
+  // the frosted glass: polished bevels outside and round the window
+  const face: THREE.Mesh = new THREE.Mesh(windowPane(GW - 2 * GBS, GH - 2 * GBS, WIN_W, WIN_H, WIN_Y, { depth: GD, bevel: GB, radius: 0.03 }), S.face)
   face.position.z = GLASS_Z
   root.add(face)
-  // the print in its slim black frame, mounted on the glass
+  // the print on its black mount board, just behind the window
+  const mount = new THREE.Mesh(new THREE.PlaneGeometry(WIN_W + 0.12, WIN_H + 0.12), S.mount)
+  mount.position.set(0, WIN_Y, BACK_Z - 0.012)
+  frameOnly(mount, S.isFrame)
+  root.add(mount)
   const printMat = new THREE.MeshBasicMaterial({ map: placeholderTexture('#0e0c13'), toneMapped: false, color: new THREE.Color().setScalar(PRINT_MAX * PRINT_DIM) })
   const print = new THREE.Mesh(new THREE.PlaneGeometry(PRINT_W, PRINT_H), printMat)
-  print.position.z = FACE_Z + 0.006
+  print.position.set(0, WIN_Y, BACK_Z - 0.006)
   frameOnly(print, S.isFrame)
   root.add(print)
-  const fr = new THREE.Mesh(frameGeometry(), S.frame)
-  fr.position.z = FACE_Z + 0.001
-  frameOnly(fr, S.isFrame)
-  root.add(fr)
-  // halo on the wall, pool on the floor
-  const h = halo(GW, GH, light, 0.2, 0.8)
+  // four polished standoffs
+  const so = new THREE.Mesh(standoffs(0, FACE_Z), S.steel)
+  frameOnly(so, S.isFrame)
+  root.add(so)
+  // a faint spill on the wall round it (restraint: it's glass, not a screen), a pool on the floor
+  const h = halo(GW, GH, light, 0.09, 0.4)
   h.mesh.position.z = 0.004
   root.add(h.mesh)
-  const p = pool(GW * 1.25, 2.4, light)
+  const p = pool(GW * 1.2, 2.4, light)
   p.mesh.position.set(0, -o.y + 0.004, 1.25)
   root.add(p.mesh)
   root.position.y = o.y
@@ -527,6 +726,7 @@ export function lightBox(o: { name: string; industry: string; light: Light; S: S
   L.position.set(LABEL_X, LABEL_Y, 0)
   root.add(L)
   L.add(tray(LABEL_W - 0.03, LABEL_H - 0.03, LABEL_TRAY, S))
+  // (a finer map sharpens the lettering's light enough for the top bevel to refract it into dots)
   const etch = etchCanvas(LABEL_W, LABEL_H, S.mobile ? 384 : 512)
   const lcard = textLight(LABEL_W + 0.4, LABEL_H + 0.06, etch, { w: LABEL_W, h: LABEL_H }, 2, { a: light.a, b: light.b, angle: light.angle, base: 0.2, text: 'warm', hdr: 1.1, edge: 0.05, bias: 2 })
   // close behind the glass: little parallax between a letter and its light
@@ -537,6 +737,7 @@ export function lightBox(o: { name: string; industry: string; light: Light; S: S
   crispEtch(caps) // (clone() drops onBeforeCompile)
   caps.roughnessMap = etch.tex
   caps.thickness = registerThickness(LABEL_D + 2 * LABEL_B + 0.003)
+  S.envMats.push(caps)
   const lglass = pane(LABEL_W, LABEL_H, { depth: LABEL_D, bevel: LABEL_B, radius: 0.012 })
   lglass.material = [caps, S.edges]
   lglass.position.z = LABEL_Z
@@ -545,24 +746,33 @@ export function lightBox(o: { name: string; industry: string; light: Light; S: S
   lh.mesh.position.z = 0.004
   L.add(lh.mesh)
 
-  const drawLabel = () => drawLabelEtch(etch, lcard, o.name, o.industry)
+  // phones: the industry line would etch ~5 px tall (the card carries it) — the name alone
+  const drawLabel = (release = false) => {
+    etch.open()
+    drawLabelEtch(etch, lcard, o.name, S.mobile ? '' : o.industry)
+    if (release) etch.release()
+  }
   drawLabel()
 
   let level = -1
+  let floorAt = -1
   let isFar = false
   return {
     root,
     print: printMat,
     drawLabel,
-    setLevel(v: number) {
-      if (Math.abs(v - level) < 1e-4) return
+    setLevel(v: number, floor = PRINT_DIM) {
+      if (Math.abs(v - level) < 1e-4 && Math.abs(floor - floorAt) < 1e-4) return
       level = v
+      floorAt = floor
       card.setLevel(CARD_DIM + (1 - CARD_DIM) * v)
-      printMat.color.setScalar(PRINT_MAX * (PRINT_DIM + (1 - PRINT_DIM) * v))
-      h.setLevel(0.015 + 0.06 * v)
-      p.setLevel(0.01 + 0.08 * v)
-      lcard.setLevel(0.2 + 0.8 * v)
-      lh.setLevel(0.01 + 0.025 * v)
+      printMat.color.setScalar(PRINT_MAX * (floor + (1 - floor) * v))
+      h.setLevel(0.004 + 0.016 * v)
+      p.setLevel(0.01 + 0.07 * v)
+      // the label keeps a little light ahead, next to none once passed
+      const lf = (0.2 * floor) / PRINT_DIM
+      lcard.setLevel(lf + (1 - lf) * v)
+      lh.setLevel(0.006 + 0.022 * v)
     },
     setPrint(t: THREE.Texture) {
       printMat.map?.dispose()
@@ -578,78 +788,53 @@ export function lightBox(o: { name: string; industry: string; light: Light; S: S
   }
 }
 
-/** the print's slim black frame: a rectangle with a print-sized hole, a hair of bevel */
-let frameGeo: THREE.BufferGeometry | null = null
-function frameGeometry() {
-  if (frameGeo) return frameGeo
-  const ow = PRINT_W / 2 + PF
-  const oh = PRINT_H / 2 + PF
-  const s = new THREE.Shape()
-  s.moveTo(-ow, -oh)
-  s.lineTo(ow, -oh)
-  s.lineTo(ow, oh)
-  s.lineTo(-ow, oh)
-  s.closePath()
-  const hole = new THREE.Path()
-  const iw = PRINT_W / 2 + 0.002
-  const ih = PRINT_H / 2 + 0.002
-  hole.moveTo(-iw, -ih)
-  hole.lineTo(-iw, ih)
-  hole.lineTo(iw, ih)
-  hole.lineTo(iw, -ih)
-  hole.closePath()
-  s.holes.push(hole)
-  const g = new THREE.ExtrudeGeometry(s, { depth: 0.012, bevelEnabled: true, bevelThickness: 0.004, bevelSize: 0.004, bevelSegments: 2, curveSegments: 1 })
-  g.computeVertexNormals()
-  frameGeo = g
-  return g
-}
-
-/** name + industry polished into the label (its light card draws the same strokes in light) */
+/**
+ * name + industry polished into the label (its light card draws the same
+ * strokes in light). No industry (phones): the name alone, centred.
+ */
 function drawLabelEtch(etch: Etch, card: TextLight, name: string, industry: string) {
   const { g, s, px } = etch
   etch.clear()
   const x0 = -LABEL_W / 2 + 0.075
   const maxW = LABEL_W - 0.15
   // the name: Hanken Grotesk, polished; long names narrow to fit
-  let cap = 0.064
+  let cap = industry ? 0.064 : 0.07
   const fontFor = (c: number) => `540 ${Math.round((c / 0.7) * s)}px ${FONT_SANS}`
   g.font = fontFor(cap)
-  let w = g.measureText(name).width / s
+  const w = g.measureText(name).width / s
   if (w > maxW) {
     cap *= maxW / w
     g.font = fontFor(cap)
-    w = g.measureText(name).width / s
   }
-  const nameBase = 0.012
+  const nameBase = industry ? 0.012 : -cap / 2
   g.textBaseline = 'alphabetic'
   const [nx, ny] = px(x0, nameBase)
   g.fillText(name, nx, ny)
-  // the industry: Red Hat Mono caps, tracked
-  const mcap = 0.03
-  g.font = `560 ${Math.round((mcap / 0.7) * s)}px ${FONT_MONO}`
-  const trk = 0.16 * mcap * s
-  const ind = industry.toUpperCase()
-  let mw = spaced(g, ind, 0, 0, trk, true) / s
-  const indBase = -0.098
-  const [ix, iy] = px(x0, indBase)
-  if (mw > maxW) {
-    g.save()
-    g.translate(ix, iy)
-    g.scale(maxW / mw, 1)
-    spaced(g, ind, 0, 0, trk)
-    g.restore()
-    mw = maxW
-  } else spaced(g, ind, ix, iy, trk)
+  // the industry: Red Hat Mono caps, bold and lightly tracked (thin strokes
+  // at this size drop out of the frost: "INDUS TRIAL", "ESTA E")
+  const mcap = 0.037
+  const indBase = -0.102
+  if (industry) {
+    g.font = `700 ${Math.round((mcap / 0.7) * s)}px ${FONT_MONO}`
+    const trk = 0.1 * mcap * s
+    const ind = industry.toUpperCase()
+    const mw = spaced(g, ind, 0, 0, trk, true) / s
+    const [ix, iy] = px(x0, indBase)
+    if (mw > maxW) {
+      g.save()
+      g.translate(ix, iy)
+      g.scale(maxW / mw, 1)
+      spaced(g, ind, 0, 0, trk)
+      g.restore()
+    } else spaced(g, ind, ix, iy, trk)
+  }
   etch.commit()
   // each line's strength applies over its own band
-  void w
-  void mw
-  const split = (nameBase - cap * 0.3 + indBase + mcap) / 2
+  const split = industry ? (nameBase - cap * 0.3 + indBase + mcap) / 2 : -LABEL_H
   card.setRect(0, -LABEL_W, split, LABEL_W, LABEL_H)
   card.setRect(1, -LABEL_W, -LABEL_H, LABEL_W, split)
   card.setK(0, 1)
-  card.setK(1, 0.85)
+  card.setK(1, 0.9)
 }
 
 // ------------------------------------------------------------------ the board
@@ -673,7 +858,8 @@ export interface Board {
   /** row j's light (0..1+), and the whole board's level */
   setRow(j: number, k: number): void
   setLevel(v: number): void
-  draw(): void
+  /** (re)draw the etch; `release` frees its canvas after the upload from now on */
+  draw(release?: boolean): void
   /** a heavier etch where the board shows small on screen (thin strokes survive) */
   setBold(b: boolean): void
   setFar(far: boolean): void
@@ -720,8 +906,12 @@ export function board(names: string[], light: Light, S: Shared, y: number): Boar
   let bold = false
   let isFar = false
 
-  const draw = () => {
+  /** once the fonts are in, the canvas is freed after each upload (a bold switch reopens it) */
+  let freed = false
+  const draw = (release = false) => {
     const { g, s, px } = etch
+    freed = freed || release
+    etch.open()
     etch.clear()
     g.textBaseline = 'alphabetic'
     const fontFor = (c: number) => `${bold ? 660 : 540} ${Math.round((c / 0.7) * s)}px ${FONT_SANS}`
@@ -761,6 +951,7 @@ export function board(names: string[], light: Light, S: Shared, y: number): Boar
       card.setRect(j, -w, rowY(j) - ROW / 2, w, rowY(j) + ROW / 2)
     })
     etch.commit()
+    if (freed) etch.release()
   }
   draw()
   const apply = () => {
